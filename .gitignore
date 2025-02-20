@@ -1,0 +1,12 @@
+config.ini
+
+log/
+
+.venv/
+
+results/
+
+leagues.json
+leagues*test.json
+
+__pycache__/
