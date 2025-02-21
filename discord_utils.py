@@ -1,12 +1,13 @@
 import discord
 import configparser
 
-# read configuration
+# Read configuration
 config = configparser.ConfigParser()
 config.read('config.ini')
 DISCORD_TOKEN = config['discord']['DISCORD_TOKEN']
 
 def upload_scores_to_discord(file_name, channel_id):
+    # Upload scores to a Discord channel
     TOKEN = DISCORD_TOKEN
 
     intents = discord.Intents.default()
@@ -15,6 +16,7 @@ def upload_scores_to_discord(file_name, channel_id):
 
     @client.event
     async def on_ready():
+        # Event handler for when the bot is ready
         channel = client.get_channel(int(channel_id))
         
         if channel:
@@ -23,4 +25,5 @@ def upload_scores_to_discord(file_name, channel_id):
 
         await client.close()
 
+    # Run the Discord bot
     client.run(TOKEN)

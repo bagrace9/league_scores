@@ -2,6 +2,7 @@ import pandas as pd
 import os
 
 def write_division_to_sheet(writer, df_start_date, handicap_enabled=False):
+    # Write division scores to a worksheet
     worksheet_name = df_start_date['start_date_str'].max()
     worksheet = writer.book.add_worksheet(worksheet_name)
     worksheet.write(0, 0, max(df_start_date['event']))
@@ -22,6 +23,7 @@ def write_division_to_sheet(writer, df_start_date, handicap_enabled=False):
         startrow += len(df_division) + 2
 
 def write_total_points_to_sheet(writer, df_season_scores):
+    # Write total points to a worksheet
     worksheet = writer.book.add_worksheet('Total Points')
     startcol = 0
     divisions = df_season_scores['division'].unique().tolist()
@@ -42,6 +44,7 @@ def save_to_excel(df_season_scores, full_path, handicap_enabled):
     results_dir = os.path.dirname(full_path)
     os.makedirs(results_dir, exist_ok=True)        
     
+    # Write scores to an Excel file
     distinct_start_dates = df_season_scores['start_date'].unique().tolist()
     distinct_start_dates.sort(reverse=True)
     with pd.ExcelWriter(full_path, engine="xlsxwriter") as writer:

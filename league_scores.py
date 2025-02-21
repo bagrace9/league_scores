@@ -1,4 +1,3 @@
-import pandas as pd
 import configparser
 import json
 import discord_utils
@@ -7,6 +6,7 @@ import scrape_udisc
 from write_to_excel import save_to_excel
 
 def load_leagues(leagues_file):
+    # Load league configurations from a JSON file
     with open(leagues_file, 'r') as f:
         leagues = json.load(f)['leagues']
         for league in leagues:
@@ -14,6 +14,7 @@ def load_leagues(leagues_file):
     return leagues
 
 def scrape_and_upload_league_scores(league_url, file_name, channel_id, handicap_enabled):
+    # Scrape and upload league scores
     year = scrape_udisc.find_first_year(league_url)
     if not year:
         return
@@ -24,18 +25,20 @@ def scrape_and_upload_league_scores(league_url, file_name, channel_id, handicap_
 
     # Filter scores from the current year
     df_season_scores = df_full_scores[df_full_scores['start_date'].dt.year == int(year)]
-    full_path = 'c:/Users/Brian/Documents/Scripts/league_scores/results/' + file_name
-    save_to_excel(df_season_scores, full_path, handicap_enabled)
+    results_path = 'results/' + file_name
+    save_to_excel(df_season_scores, results_path, handicap_enabled)
 
-    discord_utils.upload_scores_to_discord(full_path, channel_id)
+    #discord_utils.upload_scores_to_discord(results_path, channel_id)
 
 if __name__ == "__main__":
+    # Read configuration
     config = configparser.ConfigParser()
     config.read('config.ini')
     DISCORD_TOKEN = config['discord']['DISCORD_TOKEN']
     ENABLE_DISCORD_NOTIFICATIONS = config['discord'].getboolean('ENABLE_DISCORD_NOTIFICATIONS')
     LEAGUES_FILE = config['files']['LEAGUES_FILE']
     
+    # Load leagues and process scores
     leagues = load_leagues(LEAGUES_FILE)
     
     for league in leagues:

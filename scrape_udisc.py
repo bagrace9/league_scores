@@ -2,25 +2,25 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 
-# fetch page content
+# Fetch page content
 def fetch_page_content(url):
     response = requests.get(url)
     response.raise_for_status()
     return BeautifulSoup(response.content, 'html.parser')
 
-# extract year from the page content
+# Extract year from the page content
 def extract_year(soup):
     league_year = soup.find('span', class_='text-subtle ml-2 text-sm font-normal').text.strip()
     return league_year
 
-# find the first year from the URL
+# Find the first year from the URL
 def find_first_year(url):
     soup = fetch_page_content(url)
     if soup:
         return extract_year(soup)
     return None
 
-# parse event details
+# Parse event details
 def parse_event_details(soup):
     headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
     if len(headings) < 5:
@@ -29,7 +29,7 @@ def parse_event_details(soup):
     divisions = [heading.text.strip() for heading in headings[3:-1]]
     return event, divisions
 
-# parse league dates
+# Parse league dates
 def parse_league_dates(soup, year):
     league_date = soup.find('div', class_='text-subtle text-sm md:text-base').text.strip()
     if ' - ' in league_date:
@@ -40,7 +40,7 @@ def parse_league_dates(soup, year):
         end_date_str = league_date
     return start_date_str, end_date_str
 
-# parse scores from the soup object and return a DataFrame
+# Parse scores from the soup object and return a DataFrame
 def parse_scores(soup, event, divisions, start_date_str, end_date_str):
     df_raw_scores = pd.DataFrame(columns=['start_date_str', 'end_date_str', 'event', 'division', 'player', 'score'])
     column_data = soup.find_all('tr')
@@ -54,7 +54,7 @@ def parse_scores(soup, event, divisions, start_date_str, end_date_str):
             df_raw_scores = pd.concat([df_raw_scores, curr_score], ignore_index=True)
     return df_raw_scores
 
-# get scores from multiple URLs and combine them into a single DataFrame
+# Get scores from multiple URLs and combine them into a single DataFrame
 def get_scores(urls, year):
     df_raw_scores = pd.DataFrame(columns=['start_date_str', 'end_date_str', 'event', 'division', 'player', 'score'])
     for url in urls:
@@ -83,7 +83,7 @@ def get_scores(urls, year):
 
     return df_raw_scores
 
-# get event links by iterating through pages and filtering relevant links
+# Get event links by iterating through pages and filtering relevant links
 def get_event_links(url, year, handicap_enabled):
     if handicap_enabled:
         lookback_year = str(int(year) - 1)
