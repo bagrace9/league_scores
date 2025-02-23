@@ -43,7 +43,7 @@ def calculate_handicap(df_scores):
                               (df_scores['start_date'] < row['start_date'])].shape[0], axis=1)
 
     # Calculate handicap based on average scores
-    df_scores['handicap'] = 0
+    df_scores['handicap'] = 0.0
     df_scores.loc[df_scores['handicap_score_cnt'] >= 3, 'handicap'] = (df_scores['handicap_avg'] - 48) * 0.8
 
     # Ensure handicap is non-negative and rounded

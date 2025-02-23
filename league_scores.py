@@ -27,8 +27,9 @@ def scrape_and_upload_league_scores(league_url, file_name, channel_id, handicap_
     df_season_scores = df_full_scores[df_full_scores['start_date'].dt.year == int(year)]
     results_path = 'results/' + file_name
     save_to_excel(df_season_scores, results_path, handicap_enabled)
-
-    discord_utils.upload_scores_to_discord(results_path, channel_id)
+    
+    if ENABLE_DISCORD_NOTIFICATIONS:
+        discord_utils.upload_scores_to_discord(results_path, channel_id)
 
 if __name__ == "__main__":
     # Read configuration
