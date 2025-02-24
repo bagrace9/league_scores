@@ -1,7 +1,7 @@
 import discord
 import configparser
 import asyncio
-from league_scores import scrape_and_upload_league_scores, load_leagues
+from league_scores import scrape_and_upload_league_scores, load_leagues, LeagueConfig
 
 # Read configuration
 config = configparser.ConfigParser()
@@ -21,7 +21,7 @@ client = discord.Client(intents=intents)
 
 @client.event
 async def on_ready():
-        pass
+    pass
 
 @client.event
 async def on_message(message):
@@ -33,7 +33,15 @@ async def on_message(message):
         for league in leagues:
             if league['discord_channel_id'] == str(message.channel.id):
                 await message.channel.send("Grabbing scores meow...")
-                await asyncio.to_thread(scrape_and_upload_league_scores, league['url'], league['file_name'], league['discord_channel_id'], league['handicap_enabled'])
+                league_config = LeagueConfig(
+                    url=league['url'],
+                    file_name=league['file_name'],
+                    channel_id=league['discord_channel_id'],
+                    handicap_enabled=league['handicap_enabled'],
+                    discord_token=DISCORD_TOKEN,
+                    enable_discord_notifications=ENABLE_DISCORD_NOTIFICATIONS
+                )
+                await asyncio.to_thread(scrape_and_upload_league_scores, league_config)
                 await message.channel.send("Done.")
 
 if __name__ == "__main__":

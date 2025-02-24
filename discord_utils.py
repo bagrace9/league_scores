@@ -1,13 +1,8 @@
 import discord
-import configparser
 
-# Read configuration
-config = configparser.ConfigParser()
-config.read('config.ini')
-
-def upload_scores_to_discord(self,file_name, channel_id):
+def upload_scores_to_discord(file_name, channel_id, token):
     # Upload scores to a Discord channel
-    TOKEN = self.DISCORD_TOKEN
+    TOKEN = token
 
     intents = discord.Intents.default()
     intents.messages = True  # Ensure the bot can read messages
