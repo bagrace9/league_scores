@@ -7,9 +7,11 @@ from league_scores import scrape_and_upload_league_scores, load_leagues
 config = configparser.ConfigParser()
 config.read('config.ini')
 DISCORD_TOKEN = config['discord']['DISCORD_TOKEN']
+LEAGUES_FILE = config['files']['LEAGUES_FILE']
+ENABLE_DISCORD_NOTIFICATIONS = config['discord'].getboolean('ENABLE_DISCORD_NOTIFICATIONS')
 
 # Read league configurations from JSON file
-leagues = load_leagues('leagues.json')
+leagues = load_leagues(LEAGUES_FILE)
 
 # Set up Discord client with necessary intents
 intents = discord.Intents.default()

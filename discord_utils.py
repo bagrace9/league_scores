@@ -4,11 +4,10 @@ import configparser
 # Read configuration
 config = configparser.ConfigParser()
 config.read('config.ini')
-DISCORD_TOKEN = config['discord']['DISCORD_TOKEN']
 
-def upload_scores_to_discord(file_name, channel_id):
+def upload_scores_to_discord(self,file_name, channel_id):
     # Upload scores to a Discord channel
-    TOKEN = DISCORD_TOKEN
+    TOKEN = self.DISCORD_TOKEN
 
     intents = discord.Intents.default()
     intents.messages = True  # Ensure the bot can read messages
