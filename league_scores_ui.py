@@ -148,7 +148,7 @@ def open_add_league_popup():
     entry_popup_league_url = tk.Entry(popup, width=30)
     entry_popup_league_url.grid(row=2, column=1, pady=5)
 
-    tk.Label(popup, text="Cash Percentage:").grid(row=3, column=0, sticky="w")
+    tk.Label(popup, text="League Cash Percentage:").grid(row=3, column=0, sticky="w")
     entry_popup_cash_percentage = tk.Entry(popup, width=30)
     entry_popup_cash_percentage.grid(row=3, column=1, pady=5)
 
