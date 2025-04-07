@@ -37,7 +37,16 @@ def calculate_league_scores(df_scores, handicap_enabled):
 def calculate_handicap(df_scores):
     # Sort scores by player and start date
     df_scores = df_scores.sort_values(by=['player', 'start_date'])
-    df_scores['handicap_avg'] = df_scores.groupby('player')['score'].rolling(window=3, min_periods=1).mean().reset_index(level=0, drop=True)
+
+    # Create a new column that is a list of the player's previous 3 scores
+    df_scores['previous_3_scores'] = df_scores.groupby('player')['score'].apply(
+        lambda x: x.shift().rolling(window=3, min_periods=1).apply(list).reset_index(drop=True)
+    )
+
+    df_scores['handicap_avg'] = df_scores['previous_3_scores'].apply(
+        lambda scores: sum(scores) / len(scores) if isinstance(scores, list) and len(scores) > 0 else 0
+    )
+    
     df_scores['handicap_score_cnt'] = df_scores.apply(
         lambda row: df_scores[(df_scores['player'] == row['player']) & 
                               (df_scores['start_date'] < row['start_date'])].shape[0], axis=1)
