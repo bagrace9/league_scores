@@ -52,6 +52,7 @@ CREATE table if not exists leagues (
             league_name TEXT,
             league_is_handicap BOOLEAN,
             league_url TEXT,
+            league_entry_fee float,
             league_cash_percentage float,
             create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP

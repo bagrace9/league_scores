@@ -2,8 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import sqlite3
-import os
-from datetime import datetime
+import database
 
 
 # Fetch page content
@@ -110,6 +109,8 @@ def save_to_database(df_scores, league_id, db_path="league_scores.db"):
 
 def scrape(weeks,league_id):   
 
+    database.execute_sql("DELETE FROM impt_raw_scores")
+    
     df_scores = get_scores(weeks)
 
     # Save the results to a SQLite database
