@@ -13,5 +13,4 @@ def weighted_payouts(n_players, entry_fee, league_percentage):
     payouts = [round((w / total_weight) * total_pot, 2) for w in weights]
     return payouts
 
-# print(weighted_payouts(15, 4, 0))
 

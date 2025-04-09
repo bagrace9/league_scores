@@ -48,7 +48,7 @@ def write_division_to_sheet(writer, df_start_date, league_id, handicap_enabled=F
         else:
             df_division = df_division[['player', 'raw_score', 'place', 'points', 'season_points', 'payout']]
             df_division.columns = ['Player', 'Score', 'Place', 'Week Points', 'Season Points', 'Payout']
-            print(df_division)
+
         df_division = df_division.sort_values(by=['Week Points'], ascending=False)
         df_division.to_excel(writer, startrow=startrow, startcol=0, sheet_name=worksheet_name, index=False)
         startrow += len(df_division) + 2
