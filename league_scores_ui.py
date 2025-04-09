@@ -49,11 +49,16 @@ def open_add_league_popup():
     entry_popup_cash_percentage = tk.Entry(popup, width=30)
     entry_popup_cash_percentage.grid(row=3, column=1, pady=5)
 
+    tk.Label(popup, text="League Entry Fee:").grid(row=4, column=0, sticky="w")
+    entry_popup_entry_fee = tk.Entry(popup, width=30)
+    entry_popup_entry_fee.grid(row=4, column=1, pady=5)
+
     def submit_popup_league():
         league_name = entry_popup_league_name.get()
         is_handicap = var_popup_is_handicap.get()
         league_url = entry_popup_league_url.get()
         cash_percentage = entry_popup_cash_percentage.get()
+        entry_fee = entry_popup_entry_fee.get()
 
         if not league_name:
             messagebox.showerror("Error", "League name cannot be empty.")
@@ -63,11 +68,15 @@ def open_add_league_popup():
             messagebox.showerror("Error", "Cash percentage must be a number between 0 and 100.")
             return
 
-        database.create_league(league_name, is_handicap, league_url, int(cash_percentage))
+        if not entry_fee.isdigit() or int(entry_fee) < 0:
+            messagebox.showerror("Error", "Entry fee must be a non-negative number.")
+            return
+
+        database.create_league(league_name, is_handicap, league_url, int(cash_percentage), int(entry_fee))
         update_league_dropdown()
         popup.destroy()
 
-    tk.Button(popup, text="Add League", command=submit_popup_league).grid(row=4, columnspan=2, pady=10)
+    tk.Button(popup, text="Add League", command=submit_popup_league).grid(row=5, columnspan=2, pady=10)
 
 def open_edit_league_popup():
     """Open a popup window to edit the selected league."""
@@ -103,11 +112,17 @@ def open_edit_league_popup():
     entry_popup_cash_percentage.insert(0, league['cash_percentage'])
     entry_popup_cash_percentage.grid(row=3, column=1, pady=5)
 
+    tk.Label(popup, text="League Entry Fee:").grid(row=4, column=0, sticky="w")
+    entry_popup_entry_fee = tk.Entry(popup, width=30)
+    entry_popup_entry_fee.insert(0, league['entry_fee'])
+    entry_popup_entry_fee.grid(row=4, column=1, pady=5)
+
     def submit_popup_league():
         league_name = entry_popup_league_name.get()
         is_handicap = var_popup_is_handicap.get()
         league_url = entry_popup_league_url.get()
         cash_percentage = entry_popup_cash_percentage.get()
+        entry_fee = entry_popup_entry_fee.get()
 
         if not league_name:
             messagebox.showerror("Error", "League name cannot be empty.")
@@ -117,11 +132,15 @@ def open_edit_league_popup():
             messagebox.showerror("Error", "Cash percentage must be a number between 0 and 100.")
             return
 
-        database.update_league(selected_league_id, league_name, is_handicap, league_url, int(cash_percentage))
+        if not entry_fee.isdigit() or int(entry_fee) < 0:
+            messagebox.showerror("Error", "Entry fee must be a non-negative number.")
+            return
+
+        database.update_league(selected_league_id, league_name, is_handicap, league_url, int(cash_percentage), int(entry_fee))
         update_league_dropdown()
         popup.destroy()
 
-    tk.Button(popup, text="Save Changes", command=submit_popup_league).grid(row=4, columnspan=2, pady=10)
+    tk.Button(popup, text="Save Changes", command=submit_popup_league).grid(row=5, columnspan=2, pady=10)
 
 def open_scrape_scores_popup():
     """Open a popup to scrape scores using the stored league URL."""
@@ -231,6 +250,7 @@ def open_scrape_scores_popup():
             return
 
         try:
+            
             scrape_udisc.scrape(selected_weeks, selected_league_id)
             database.execute_sql_script('sql/replace_scores.sql')
             database.execute_update_points_script(selected_league_id)

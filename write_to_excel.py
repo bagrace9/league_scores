@@ -23,16 +23,18 @@ def write_division_to_sheet(writer, df_start_date, league_id, handicap_enabled=F
             raise Exception("Failed to connect to the database.")
 
         league_cash_percentage = 0
+        league_entry_fee = 0
         try:
             with conn:
-                cursor = conn.execute("SELECT league_cash_percentage FROM leagues WHERE id = ?", (league_id,))
+                cursor = conn.execute("SELECT league_cash_percentage, league_entry_fee FROM leagues WHERE id = ?", (league_id,))
                 result = cursor.fetchone()
                 if result:
                     league_cash_percentage = result[0]
+                    league_entry_fee = result[1]
         finally:
             conn.close()
 
-        payouts = calc_payouts.weighted_payouts(len(df_division), 4, league_cash_percentage)
+        payouts = calc_payouts.weighted_payouts(len(df_division), league_entry_fee, league_cash_percentage)
         df_division['payout'] = 0.0
         
         for place, group in df_division.groupby('place'):
