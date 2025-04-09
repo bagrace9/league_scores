@@ -146,8 +146,10 @@ def open_scrape_scores_popup():
     year_combobox.pack(pady=5)
 
     def load_weeks():
+        # Clear only the rows of the table, not the headers
         for widget in scrollable_frame.winfo_children():
-            widget.destroy()
+            if widget != header_frame:  # Preserve the header frame
+                widget.destroy()
 
         selected_year = lookback_date.get()
         if not selected_year:
