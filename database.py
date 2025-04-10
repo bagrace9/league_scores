@@ -12,7 +12,7 @@ def run_create_script(script_path='sql/create_scripts.sql'):
     finally:
         conn.close()
 
-def create_league(league_name, is_handicap, league_url, cash_percentage, entry_fee):
+def create_league(league_name, league_url, cash_percentage, entry_fee, is_handicap, handicap_minimum_rounds, handicap_rounds_considered,handicap_years_lookback,handicap_base_score,handicap_multiplier):
     """Insert a new league into the database."""
     conn = connect_to_sqlite()
     if conn is None:
@@ -22,15 +22,24 @@ def create_league(league_name, is_handicap, league_url, cash_percentage, entry_f
         with conn:
             conn.execute(
                 """
-                INSERT INTO leagues (league_name, league_is_handicap, league_url, league_cash_percentage, league_entry_fee)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO leagues (league_name, 
+                                    league_url, 
+                                    league_cash_percentage, 
+                                    league_entry_fee, 
+                                    league_is_handicap, 
+                                    handicap_minimum_rounds, 
+                                    handicap_rounds_considered, 
+                                    handicap_years_lookback,
+                                    handicap_base_score,
+                                    handicap_multiplier)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (league_name, is_handicap, league_url, cash_percentage, entry_fee)
+                (league_name, league_url, cash_percentage, entry_fee, is_handicap, handicap_minimum_rounds, handicap_rounds_considered,handicap_years_lookback, handicap_base_score, handicap_multiplier)
             )
     finally:
         conn.close()
 
-def update_league(league_id, league_name, is_handicap, league_url, cash_percentage, entry_fee):
+def update_league(league_id, league_name, league_url, cash_percentage, entry_fee, is_handicap, handicap_minimum_rounds, handicap_rounds_considered,handicap_years_lookback,handicap_base_score,handicap_multiplier):
     """Update an existing league in the database."""
     conn = connect_to_sqlite()
     if conn is None:
@@ -41,10 +50,19 @@ def update_league(league_id, league_name, is_handicap, league_url, cash_percenta
             conn.execute(
                 """
                 UPDATE leagues
-                SET league_name = ?, league_is_handicap = ?, league_url = ?, league_cash_percentage = ?, league_entry_fee = ?
+                SET league_name = ?
+                  , league_url = ?
+                  , league_cash_percentage = ?
+                  , league_entry_fee = ?                  
+                  , league_is_handicap = ?
+                  , handicap_minimum_rounds = ?
+                  , handicap_rounds_considered = ?
+                  , handicap_years_lookback = ?
+                  , handicap_base_score = ?
+                  , handicap_multiplier = ?
                 WHERE id = ?
                 """,
-                (league_name, is_handicap, league_url, cash_percentage, entry_fee, league_id)
+                (league_name, league_url, cash_percentage, entry_fee, is_handicap, handicap_minimum_rounds, handicap_rounds_considered,handicap_years_lookback,handicap_base_score,handicap_multiplier, league_id)
             )
     finally:
         conn.close()
@@ -122,9 +140,16 @@ def fetch_league_by_id(league_id):
         with conn:
             result = conn.execute(
                 """
-                SELECT league_name AS name, league_is_handicap AS is_handicap, 
-                       league_url AS url, league_cash_percentage AS cash_percentage, 
-                       league_entry_fee AS entry_fee
+                SELECT league_name AS name, 
+                       league_is_handicap AS is_handicap, 
+                       league_url AS url, 
+                       league_cash_percentage AS cash_percentage, 
+                       league_entry_fee AS entry_fee,
+                       handicap_minimum_rounds AS handicap_minimum_rounds,
+                       handicap_rounds_considered AS handicap_rounds_considered,
+                       handicap_years_lookback AS handicap_years_lookback,
+                       handicap_base_score AS handicap_base_score,
+                       handicap_multiplier AS handicap_multiplier
                 FROM leagues
                 WHERE id = ?
                 """,
@@ -137,6 +162,11 @@ def fetch_league_by_id(league_id):
                     "url": result[2],
                     "cash_percentage": result[3],
                     "entry_fee": result[4],
+                    "handicap_minimum_rounds": result[5],
+                    "handicap_rounds_considered": result[6],
+                    "handicap_years_lookback": result[7],
+                    "handicap_base_score": result[8],
+                    "handicap_multiplier": result[9]
                 }
             return None
     finally:
