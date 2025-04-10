@@ -7,6 +7,7 @@ from utils import ensure_db_exists
 import database
 import scrape_udisc
 import write_to_excel
+import create_sql_scripts
 
 def update_league_dropdown():
     """Update the dropdown menu with the list of leagues."""
@@ -298,6 +299,7 @@ def create_spreadsheet():
         messagebox.showerror("Error", f"Failed to generate spreadsheet: {e}")
 
 ensure_db_exists()
+create_sql_scripts.create_sql_files()
 database.execute_sql_script('sql/create_scripts.sql')
 
 root = tk.Tk()
