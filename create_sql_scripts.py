@@ -1,3 +1,125 @@
+import os
+
+def create_table_create_file():
+    file_path = "sql/create_scripts.sql"
+
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    # Define the SQL script as a multiline string
+    sql_script = """
+Drop table if exists impt_raw_scores
+;
+
+CREATE table if not exists impt_raw_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            league_id INTEGER,
+            start_date_str TEXT,
+            end_date_str TEXT,
+            start_date date,
+            end_date date,
+            event TEXT,
+            division TEXT,
+            player TEXT,
+            score INTEGER,
+            points_multiplyer INTEGER,
+            handicap_excluded BOOLEAN,
+            create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+;
+
+CREATE table if not exists scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            league_id INTEGER,
+            start_date date,
+            end_date date,
+            year INTEGER,
+            event TEXT,
+            division TEXT,
+            player TEXT,
+            raw_score INTEGER,
+            points_multiplyer float,
+            handicap int,
+            adjusted_score int,
+            place int,
+            points int,
+            handicap_excluded BOOLEAN,
+            next_handicap int,
+            season_points int,
+            season_place int,
+            create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+;
+
+CREATE table if not exists leagues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            league_name TEXT,
+            league_is_handicap BOOLEAN,
+            league_url TEXT,
+            league_entry_fee float,
+            league_cash_percentage float,
+            create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+;
+"""
+
+    # Write the SQL script to the file
+    with open(file_path, "w") as file:
+        file.write(sql_script)
+
+
+def create_replace_scores_file():
+    file_path = "sql/replace_scores.sql"
+
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    # Define the SQL script as a multiline string
+    sql_script = """
+delete from scores as s1
+where exists (
+  						select 1
+              from impt_raw_scores irs
+              where s1.event = irs.event
+             );
+
+insert into scores(league_id,
+                       start_date,
+                       end_date,
+                       event,
+                       division,
+                       player,
+                       raw_score,
+                       points_multiplyer,
+                       handicap_excluded)
+select league_id,
+			 start_date,
+       end_date,
+       event,
+       division,
+       player,
+       score,
+       points_multiplyer,
+       handicap_excluded
+from impt_raw_scores
+"""
+
+    # Write the SQL script to the file
+    with open(file_path, "w") as file:
+        file.write(sql_script)
+
+
+
+def create_update_points_file():
+    file_path = "sql/update_points.sql"
+
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    # Define the SQL script as a multiline string
+    sql_script = """
 update scores
 set year = strftime('%Y', end_date)
 where league_id = {league_id}
@@ -128,5 +250,14 @@ set season_place = (select count(distinct player) + 1
 where s1.year = strftime('%Y', datetime('now'))     
   and league_id = {league_id}
 ;
-  
-  
+"""
+
+    # Write the SQL script to the file
+    with open(file_path, "w") as file:
+        file.write(sql_script)
+
+def create_sql_files():
+    # Create the SQL files
+    create_table_create_file()
+    create_replace_scores_file()
+    create_update_points_file() 

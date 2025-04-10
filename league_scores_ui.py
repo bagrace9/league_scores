@@ -7,6 +7,7 @@ from utils import ensure_db_exists
 import database
 import scrape_udisc
 import write_to_excel
+import create_sql_scripts
 
 def update_league_dropdown():
     """Update the dropdown menu with the list of leagues."""
@@ -57,22 +58,29 @@ def open_add_league_popup():
         league_name = entry_popup_league_name.get()
         is_handicap = var_popup_is_handicap.get()
         league_url = entry_popup_league_url.get()
-        cash_percentage = entry_popup_cash_percentage.get()
-        entry_fee = entry_popup_entry_fee.get()
 
         if not league_name:
             messagebox.showerror("Error", "League name cannot be empty.")
             return
 
-        if not cash_percentage.isdigit() or not (0 <= int(cash_percentage) <= 100):
-            messagebox.showerror("Error", "Cash percentage must be a number between 0 and 100.")
+        # Check if the league name already exists
+        existing_leagues = [name for _, name in database.fetch_leagues()]
+        if league_name in existing_leagues:
+            messagebox.showerror("Error", "A league with this name already exists.")
             return
 
-        if not entry_fee.isdigit() or int(entry_fee) < 0:
-            messagebox.showerror("Error", "Entry fee must be a non-negative number.")
+        try:
+            cash_percentage = float(entry_popup_cash_percentage.get())
+            entry_fee = float(entry_popup_entry_fee.get())
+            if not (0 <= cash_percentage <= 100):
+                raise ValueError("Cash percentage must be between 0 and 100.")
+            if entry_fee < 0:
+                raise ValueError("Entry fee must be non-negative.")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
             return
 
-        database.create_league(league_name, is_handicap, league_url, int(cash_percentage), int(entry_fee))
+        database.create_league(league_name, is_handicap, league_url, cash_percentage, entry_fee)
         update_league_dropdown()
         popup.destroy()
 
@@ -121,22 +129,23 @@ def open_edit_league_popup():
         league_name = entry_popup_league_name.get()
         is_handicap = var_popup_is_handicap.get()
         league_url = entry_popup_league_url.get()
-        cash_percentage = entry_popup_cash_percentage.get()
-        entry_fee = entry_popup_entry_fee.get()
 
         if not league_name:
             messagebox.showerror("Error", "League name cannot be empty.")
             return
 
-        if not cash_percentage.isdigit() or not (0 <= int(cash_percentage) <= 100):
-            messagebox.showerror("Error", "Cash percentage must be a number between 0 and 100.")
+        try:
+            cash_percentage = float(entry_popup_cash_percentage.get())
+            entry_fee = float(entry_popup_entry_fee.get())
+            if not (0 <= cash_percentage <= 100):
+                raise ValueError("Cash percentage must be between 0 and 100.")
+            if entry_fee < 0:
+                raise ValueError("Entry fee must be non-negative.")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
             return
 
-        if not entry_fee.isdigit() or int(entry_fee) < 0:
-            messagebox.showerror("Error", "Entry fee must be a non-negative number.")
-            return
-
-        database.update_league(selected_league_id, league_name, is_handicap, league_url, int(cash_percentage), int(entry_fee))
+        database.update_league(selected_league_id, league_name, is_handicap, league_url, cash_percentage, entry_fee)
         update_league_dropdown()
         popup.destroy()
 
@@ -292,6 +301,7 @@ def create_spreadsheet():
         messagebox.showerror("Error", f"Failed to generate spreadsheet: {e}")
 
 ensure_db_exists()
+create_sql_scripts.create_sql_files()
 database.execute_sql_script('sql/create_scripts.sql')
 
 root = tk.Tk()
