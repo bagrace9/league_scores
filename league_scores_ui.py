@@ -64,6 +64,12 @@ def open_add_league_popup():
             messagebox.showerror("Error", "League name cannot be empty.")
             return
 
+        # Check if the league name already exists
+        existing_leagues = [name for _, name in database.fetch_leagues()]
+        if league_name in existing_leagues:
+            messagebox.showerror("Error", "A league with this name already exists.")
+            return
+
         if not cash_percentage.isdigit() or not (0 <= int(cash_percentage) <= 100):
             messagebox.showerror("Error", "Cash percentage must be a number between 0 and 100.")
             return
