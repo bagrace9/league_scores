@@ -37,22 +37,60 @@ def open_add_league_popup():
     entry_popup_league_name = tk.Entry(popup, width=30)
     entry_popup_league_name.grid(row=0, column=1, pady=5)
 
-    tk.Label(popup, text="Is Handicap:").grid(row=1, column=0, sticky="w")
-    var_popup_is_handicap = tk.BooleanVar()
-    checkbox_popup_is_handicap = tk.Checkbutton(popup, variable=var_popup_is_handicap)
-    checkbox_popup_is_handicap.grid(row=1, column=1, pady=5, sticky="w")
-
-    tk.Label(popup, text="League URL:").grid(row=2, column=0, sticky="w")
+    tk.Label(popup, text="League URL:").grid(row=1, column=0, sticky="w")
     entry_popup_league_url = tk.Entry(popup, width=30)
-    entry_popup_league_url.grid(row=2, column=1, pady=5)
+    entry_popup_league_url.grid(row=1, column=1, pady=5)
 
-    tk.Label(popup, text="League Cash Percentage:").grid(row=3, column=0, sticky="w")
+    tk.Label(popup, text="League Cash Percentage:").grid(row=2, column=0, sticky="w")
     entry_popup_cash_percentage = tk.Entry(popup, width=30)
-    entry_popup_cash_percentage.grid(row=3, column=1, pady=5)
+    entry_popup_cash_percentage.grid(row=2, column=1, pady=5)
 
-    tk.Label(popup, text="League Entry Fee:").grid(row=4, column=0, sticky="w")
+    tk.Label(popup, text="League Entry Fee:").grid(row=3, column=0, sticky="w")
     entry_popup_entry_fee = tk.Entry(popup, width=30)
-    entry_popup_entry_fee.grid(row=4, column=1, pady=5)
+    entry_popup_entry_fee.grid(row=3, column=1, pady=5)
+
+    tk.Label(popup, text="Is Handicap:").grid(row=4, column=0, sticky="w")
+
+    def toggle_handicap_fields():
+        state = "normal" if var_popup_is_handicap.get() else "hidden"
+        for widget in handicap_widgets:
+            widget.grid() if state == "normal" else widget.grid_remove()
+
+    var_popup_is_handicap = tk.BooleanVar()
+    checkbox_popup_is_handicap = tk.Checkbutton(popup, variable=var_popup_is_handicap, command=toggle_handicap_fields)
+    checkbox_popup_is_handicap.grid(row=4, column=1, pady=5, sticky="w")
+
+    label_min_rounds = tk.Label(popup, text="Handicap Minimum Rounds:")
+    label_min_rounds.grid(row=5, column=0, sticky="w")
+    entry_popup_min_rounds = tk.Entry(popup, width=30)
+    entry_popup_min_rounds.grid(row=5, column=1, pady=5)
+
+    label_rounds_considered = tk.Label(popup, text="Handicap Rounds Considered:")
+    label_rounds_considered.grid(row=6, column=0, sticky="w")
+    entry_popup_rounds_considered = tk.Entry(popup, width=30)
+    entry_popup_rounds_considered.grid(row=6, column=1, pady=5)
+
+    label_years_lookback = tk.Label(popup, text="Handicap Years Lookback:")
+    label_years_lookback.grid(row=7, column=0, sticky="w")
+    entry_popup_years_lookback = tk.Entry(popup, width=30)
+    entry_popup_years_lookback.grid(row=7, column=1, pady=5)
+
+    label_base_score = tk.Label(popup, text="Handicap Base Score:")
+    label_base_score.grid(row=8, column=0, sticky="w")
+    entry_popup_base_score = tk.Entry(popup, width=30)
+    entry_popup_base_score.grid(row=8, column=1, pady=5)
+
+    label_multiplier = tk.Label(popup, text="Handicap Multiplier:")
+    label_multiplier.grid(row=9, column=0, sticky="w")
+    entry_popup_multiplier = tk.Entry(popup, width=30)
+    entry_popup_multiplier.grid(row=9, column=1, pady=5)
+
+    handicap_widgets = [
+        label_min_rounds, entry_popup_min_rounds, label_rounds_considered, entry_popup_rounds_considered,
+        label_years_lookback, entry_popup_years_lookback, label_base_score, entry_popup_base_score,
+        label_multiplier, entry_popup_multiplier
+    ]
+    toggle_handicap_fields()
 
     def submit_popup_league():
         league_name = entry_popup_league_name.get()
@@ -76,15 +114,26 @@ def open_add_league_popup():
                 raise ValueError("Cash percentage must be between 0 and 100.")
             if entry_fee < 0:
                 raise ValueError("Entry fee must be non-negative.")
+            if is_handicap:
+                min_rounds = int(entry_popup_min_rounds.get())
+                rounds_considered = int(entry_popup_rounds_considered.get())
+                years_lookback = int(entry_popup_years_lookback.get())
+                base_score = int(entry_popup_base_score.get())
+                multiplier = float(entry_popup_multiplier.get())
+            else:
+                min_rounds = rounds_considered = years_lookback = base_score = multiplier = None
         except ValueError as e:
             messagebox.showerror("Error", str(e))
             return
 
-        database.create_league(league_name, is_handicap, league_url, cash_percentage, entry_fee)
+        database.create_league(
+            league_name, league_url, cash_percentage, entry_fee, is_handicap,
+            min_rounds, rounds_considered, years_lookback, base_score, multiplier
+        )
         update_league_dropdown()
         popup.destroy()
 
-    tk.Button(popup, text="Add League", command=submit_popup_league).grid(row=5, columnspan=2, pady=10)
+    tk.Button(popup, text="Add League", command=submit_popup_league).grid(row=10, columnspan=2, pady=10)
 
 def open_edit_league_popup():
     """Open a popup window to edit the selected league."""
@@ -105,25 +154,68 @@ def open_edit_league_popup():
     entry_popup_league_name.insert(0, league['name'])
     entry_popup_league_name.grid(row=0, column=1, pady=5)
 
-    tk.Label(popup, text="Is Handicap:").grid(row=1, column=0, sticky="w")
-    var_popup_is_handicap = tk.BooleanVar(value=league['is_handicap'])
-    checkbox_popup_is_handicap = tk.Checkbutton(popup, variable=var_popup_is_handicap)
-    checkbox_popup_is_handicap.grid(row=1, column=1, pady=5, sticky="w")
-
-    tk.Label(popup, text="League URL:").grid(row=2, column=0, sticky="w")
+    tk.Label(popup, text="League URL:").grid(row=1, column=0, sticky="w")
     entry_popup_league_url = tk.Entry(popup, width=30)
     entry_popup_league_url.insert(0, league['url'])
-    entry_popup_league_url.grid(row=2, column=1, pady=5)
+    entry_popup_league_url.grid(row=1, column=1, pady=5)
 
-    tk.Label(popup, text="League Cash Percentage:").grid(row=3, column=0, sticky="w")
+    tk.Label(popup, text="League Cash Percentage:").grid(row=2, column=0, sticky="w")
     entry_popup_cash_percentage = tk.Entry(popup, width=30)
     entry_popup_cash_percentage.insert(0, league['cash_percentage'])
-    entry_popup_cash_percentage.grid(row=3, column=1, pady=5)
+    entry_popup_cash_percentage.grid(row=2, column=1, pady=5)
 
-    tk.Label(popup, text="League Entry Fee:").grid(row=4, column=0, sticky="w")
+    tk.Label(popup, text="League Entry Fee:").grid(row=3, column=0, sticky="w")
     entry_popup_entry_fee = tk.Entry(popup, width=30)
     entry_popup_entry_fee.insert(0, league['entry_fee'])
-    entry_popup_entry_fee.grid(row=4, column=1, pady=5)
+    entry_popup_entry_fee.grid(row=3, column=1, pady=5)
+
+    tk.Label(popup, text="Is Handicap:").grid(row=4, column=0, sticky="w")
+
+    def toggle_handicap_fields():
+        state = "normal" if var_popup_is_handicap.get() else "hidden"
+        for widget in handicap_widgets:
+            widget.grid() if state == "normal" else widget.grid_remove()
+
+    var_popup_is_handicap = tk.BooleanVar(value=league['is_handicap'])
+    checkbox_popup_is_handicap = tk.Checkbutton(popup, variable=var_popup_is_handicap, command=toggle_handicap_fields)
+    checkbox_popup_is_handicap.grid(row=4, column=1, pady=5, sticky="w")
+
+    label_min_rounds = tk.Label(popup, text="Handicap Minimum Rounds:")
+    label_min_rounds.grid(row=5, column=0, sticky="w")
+    entry_popup_min_rounds = tk.Entry(popup, width=30)
+    entry_popup_min_rounds.insert(0, league['handicap_minimum_rounds'] or "")
+    entry_popup_min_rounds.grid(row=5, column=1, pady=5)
+
+    label_rounds_considered = tk.Label(popup, text="Handicap Rounds Considered:")
+    label_rounds_considered.grid(row=6, column=0, sticky="w")
+    entry_popup_rounds_considered = tk.Entry(popup, width=30)
+    entry_popup_rounds_considered.insert(0, league['handicap_rounds_considered'] or "")
+    entry_popup_rounds_considered.grid(row=6, column=1, pady=5)
+
+    label_years_lookback = tk.Label(popup, text="Handicap Years Lookback:")
+    label_years_lookback.grid(row=7, column=0, sticky="w")
+    entry_popup_years_lookback = tk.Entry(popup, width=30)
+    entry_popup_years_lookback.insert(0, league['handicap_years_lookback'] or "")
+    entry_popup_years_lookback.grid(row=7, column=1, pady=5)
+
+    label_base_score = tk.Label(popup, text="Handicap Base Score:")
+    label_base_score.grid(row=8, column=0, sticky="w")
+    entry_popup_base_score = tk.Entry(popup, width=30)
+    entry_popup_base_score.insert(0, league['handicap_base_score'] or "")
+    entry_popup_base_score.grid(row=8, column=1, pady=5)
+
+    label_multiplier = tk.Label(popup, text="Handicap Multiplier:")
+    label_multiplier.grid(row=9, column=0, sticky="w")
+    entry_popup_multiplier = tk.Entry(popup, width=30)
+    entry_popup_multiplier.insert(0, league['handicap_multiplier'] or "")
+    entry_popup_multiplier.grid(row=9, column=1, pady=5)
+
+    handicap_widgets = [
+        label_min_rounds, entry_popup_min_rounds, label_rounds_considered, entry_popup_rounds_considered,
+        label_years_lookback, entry_popup_years_lookback, label_base_score, entry_popup_base_score,
+        label_multiplier, entry_popup_multiplier
+    ]
+    toggle_handicap_fields()
 
     def submit_popup_league():
         league_name = entry_popup_league_name.get()
@@ -141,15 +233,26 @@ def open_edit_league_popup():
                 raise ValueError("Cash percentage must be between 0 and 100.")
             if entry_fee < 0:
                 raise ValueError("Entry fee must be non-negative.")
+            if is_handicap:
+                min_rounds = int(entry_popup_min_rounds.get())
+                rounds_considered = int(entry_popup_rounds_considered.get())
+                years_lookback = int(entry_popup_years_lookback.get())
+                base_score = int(entry_popup_base_score.get())
+                multiplier = float(entry_popup_multiplier.get())
+            else:
+                min_rounds = rounds_considered = years_lookback = base_score = multiplier = None
         except ValueError as e:
             messagebox.showerror("Error", str(e))
             return
 
-        database.update_league(selected_league_id, league_name, is_handicap, league_url, cash_percentage, entry_fee)
+        database.update_league(
+            selected_league_id, league_name, league_url, cash_percentage, entry_fee, is_handicap,
+            min_rounds, rounds_considered, years_lookback, base_score, multiplier
+        )
         update_league_dropdown()
         popup.destroy()
 
-    tk.Button(popup, text="Save Changes", command=submit_popup_league).grid(row=5, columnspan=2, pady=10)
+    tk.Button(popup, text="Save Changes", command=submit_popup_league).grid(row=10, columnspan=2, pady=10)
 
 def open_scrape_scores_popup():
     """Open a popup to scrape scores using the stored league URL."""

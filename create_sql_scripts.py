@@ -54,11 +54,16 @@ CREATE table if not exists scores (
 
 CREATE table if not exists leagues (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            league_name TEXT,
-            league_is_handicap BOOLEAN,
+            league_name TEXT,            
             league_url TEXT,
             league_entry_fee float,
             league_cash_percentage float,
+            league_is_handicap BOOLEAN,
+            handicap_minimum_rounds int,
+            handicap_rounds_considered int,
+            handicap_years_lookback int,
+            handicap_base_score int,
+            handicap_multiplier float,
             create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
