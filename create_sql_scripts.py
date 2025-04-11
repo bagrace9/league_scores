@@ -237,6 +237,7 @@ set season_points = (select sum(points)
                        and s2.league_id = s1.league_id
                        and s2.end_date <= s1.end_date
                        and s2.year >= s1.year
+                       and s2.division = s1.division
                      )
 where s1."year" = strftime('%Y', datetime('now'))
   and league_id = {league_id}             
