@@ -98,7 +98,7 @@ def save_to_database(df_scores, league_id, db_path="league_scores.db"):
     conn = sqlite3.connect(db_path)
 
     # Remove rows where the player ends with "DNF" (case-sensitive)
-    df_scores = df_scores[~df_scores['player'].str.endswith('DNF', case=True, na=False)]
+    df_scores = df_scores[~df_scores['player'].str.endswith('DNF', na=False)]
     
     df_scores['league_id'] = league_id
     df_scores['start_date'] = pd.to_datetime(df_scores['start_date_str'], errors='coerce')
