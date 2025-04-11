@@ -31,17 +31,30 @@ def parse_league_dates(soup):
         end_date_str = league_date
     return start_date_str, end_date_str
 
+def find_score_position(column_data):
+    for row in column_data:
+        title_rows = row.find_all('th')
+        row_data = [data.text.strip() for data in title_rows]
+        row_data = [''.join(filter(lambda x: not x.isdigit(), data)) for data in row_data]
+        if 'Round' in row_data:
+            score_position = row_data.index('Round')
+            score_position = -1 * (len(row_data) - score_position)
+            return score_position
+
+    
+
 # Parse scores from the soup object and return a DataFrame
 def parse_scores(soup, event, divisions, start_date_str, end_date_str):
     df_raw_scores = pd.DataFrame(columns=['start_date_str', 'end_date_str', 'event', 'division', 'player', 'score'])
     column_data = soup.find_all('tr')
+    score_position = find_score_position(column_data)
     for row in column_data:
         row_data = row.find_all('td')
         player_score = [data.text.strip() for data in row_data]
         if player_score == []:
             div = divisions.pop(0)
         else:
-            curr_score = pd.DataFrame({'start_date_str': [start_date_str], 'end_date_str': [end_date_str], 'event': [event], 'division': [div], 'player': [player_score[1]], 'score': [player_score[-1]]})
+            curr_score = pd.DataFrame({'start_date_str': [start_date_str], 'end_date_str': [end_date_str], 'event': [event], 'division': [div], 'player': [player_score[1]], 'score': [player_score[score_position]]})
             df_raw_scores = pd.concat([df_raw_scores, curr_score], ignore_index=True)
     return df_raw_scores
 
@@ -49,7 +62,7 @@ def parse_scores(soup, event, divisions, start_date_str, end_date_str):
 def get_scores(weeks):
     df_raw_scores = pd.DataFrame(columns=['start_date_str', 'end_date_str', 'event', 'division', 'player', 'score'])
     for _, week in weeks.iterrows():
-        url = week['url']  # Assuming the DataFrame has a column named 'url'
+        url = week['url']  
         
         soup = fetch_page_content(url)
         if not soup:
