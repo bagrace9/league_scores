@@ -18,3 +18,5 @@ sql/
 dist/
 
 build/
+
+league_scores_ui.spec
