@@ -114,8 +114,8 @@ def save_to_database(df_scores, league_id, db_path="league_scores.db"):
     df_scores = df_scores[~df_scores['player'].str.endswith('DNF', na=False)]
     
     df_scores['league_id'] = league_id
-    df_scores['start_date'] = pd.to_datetime(df_scores['start_date_str'], errors='coerce')
-    df_scores['end_date'] = pd.to_datetime(df_scores['end_date_str'], errors='coerce')
+    df_scores['start_date'] = pd.to_datetime(df_scores['start_date_str'], format='%b %d, %Y')
+    df_scores['end_date'] = pd.to_datetime(df_scores['end_date_str'], format='%b %d, %Y')
 
     df_scores.to_sql('impt_raw_scores', conn, if_exists='append', index=False)
     
