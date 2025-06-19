@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import sqlite3
 import database
+from datetime import datetime
 
 
 # Fetch page content
@@ -22,13 +23,11 @@ def parse_event_details(soup):
 
 # Parse league dates
 def parse_league_dates(soup):
-    league_date = soup.find('div', class_='text-subtle text-sm md:text-base').text.strip()
-    if ' - ' in league_date:
-        start_date_str, end_date_str = league_date.split(' - ')
-        start_date_str = start_date_str + ', ' + end_date_str[-4:]
-    else:
-        start_date_str = league_date
-        end_date_str = league_date
+    date_elements = soup.find_all('time', limit=2)
+    if len(date_elements) < 2:
+        return None, None
+    start_date_str = datetime.fromisoformat(date_elements[0]['datetime'])
+    end_date_str = datetime.fromisoformat(date_elements[1]['datetime'])
     return start_date_str, end_date_str
 
 def find_score_position(column_data):
@@ -94,11 +93,11 @@ def get_event_links(url,lookback_year):
         if not soup:
             break
         for a_tag in soup.find_all('a', href=True):
-            year_span = a_tag.find_next('span', class_='text-subtle ml-2 text-sm font-normal')
+            year_span = a_tag.find_next('span', class_='ml-2 font-normal text-sm text-subtle')
             if year_span:
                 link_year = year_span.text.strip()
             link = a_tag['href']
-            if link.startswith('/events') and link.endswith('/leaderboard') and int(link_year) >= int(lookback_year):
+            if link.startswith('/events') and '/leaderboard' in link and int(link_year) >= int(lookback_year):
                 links.append('https://udisc.com' + link)
         page += 1
     return links
@@ -114,8 +113,8 @@ def save_to_database(df_scores, league_id, db_path="league_scores.db"):
     df_scores = df_scores[~df_scores['player'].str.endswith('DNF', na=False)]
     
     df_scores['league_id'] = league_id
-    df_scores['start_date'] = pd.to_datetime(df_scores['start_date_str'], errors='coerce')
-    df_scores['end_date'] = pd.to_datetime(df_scores['end_date_str'], errors='coerce')
+    df_scores['start_date'] = pd.to_datetime(df_scores['start_date_str'], format='%b %d, %Y')
+    df_scores['end_date'] = pd.to_datetime(df_scores['end_date_str'], format='%b %d, %Y')
 
     df_scores.to_sql('impt_raw_scores', conn, if_exists='append', index=False)
     
