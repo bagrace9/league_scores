@@ -10,3 +10,13 @@ leagues.json
 leagues*test.json
 
 __pycache__/
+
+league_scores.db
+
+sql/
+
+dist/
+
+build/
+
+league_scores_ui.spec
