@@ -3,3 +3,5 @@ bs4
 pandas
 discord
 schedule
+tkinter
+tkcalendar
