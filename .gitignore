@@ -3,6 +3,8 @@ log/
 
 .venv/
 
+sql/
+
 results/
 
 __pycache__/

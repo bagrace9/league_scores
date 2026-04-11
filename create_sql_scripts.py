@@ -75,6 +75,9 @@ CREATE table if not exists leagues (
         file.write(sql_script)
 
 
+##################################################################################        
+
+
 def create_replace_scores_file():
     file_path = "sql/replace_scores.sql"
 
@@ -114,6 +117,9 @@ from impt_raw_scores
     # Write the SQL script to the file
     with open(file_path, "w") as file:
         file.write(sql_script)
+
+
+##################################################################################        
 
 
 
@@ -262,8 +268,44 @@ where s1.year = strftime('%Y', datetime('now'))
     with open(file_path, "w") as file:
         file.write(sql_script)
 
+
+##################################################################################
+
+
+def create_pull_all_handicaps():
+    file_path = "sql/pull_all_handicaps.sql"
+
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+    # Define the SQL script as a multiline string
+    sql_script = """
+select player
+      ,coalesce(
+                first_value(next_handicap) over (partition by player,league_id order by start_date desc)
+               , 0)  Handicap
+from scores
+where league_id = {league_id}
+  and year >= strftime('%Y', 'now', '-1 year')
+  and exists (select 1
+              from scores s2
+              where s.player = s2.player
+              group by year
+              having count (1) >=3)
+group by player
+order by player"""
+
+    # Write the SQL script to the file
+    with open(file_path, "w") as file:
+        file.write(sql_script)
+
+
+##################################################################################
+
+
 def create_sql_files():
     # Create the SQL files
     create_table_create_file()
     create_replace_scores_file()
-    create_update_points_file() 
+    create_update_points_file()
+    create_pull_all_handicaps()
