@@ -38,19 +38,36 @@ def open_add_league_popup():
     entry_popup_league_name = tk.Entry(popup)
     entry_popup_league_name.grid(row=0, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="League URL:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+    tk.Label(popup, text="League URL(s):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
     entry_popup_league_url = tk.Entry(popup)
     entry_popup_league_url.grid(row=1, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="League Cash Percentage:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+    def add_url_to_list():
+        url = entry_popup_league_url.get().strip()
+        if url:
+            listbox_league_urls.insert('end', url)
+            entry_popup_league_url.delete(0, 'end')
+
+    def remove_selected_url():
+        selected = list(listbox_league_urls.curselection())
+        for index in reversed(selected):
+            listbox_league_urls.delete(index)
+
+    tk.Button(popup, text="Add URL", command=add_url_to_list).grid(row=2, column=0, pady=5, sticky="w", padx=5)
+    tk.Button(popup, text="Remove Selected URL", command=remove_selected_url).grid(row=2, column=1, pady=5, sticky="w", padx=5)
+
+    listbox_league_urls = tk.Listbox(popup, height=4)
+    listbox_league_urls.grid(row=3, column=0, columnspan=2, pady=5, padx=5, sticky="ew")
+
+    tk.Label(popup, text="League Cash Percentage:").grid(row=4, column=0, sticky="w", padx=5, pady=5)
     entry_popup_cash_percentage = tk.Entry(popup)
-    entry_popup_cash_percentage.grid(row=2, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_cash_percentage.grid(row=4, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="League Entry Fee:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
+    tk.Label(popup, text="League Entry Fee:").grid(row=5, column=0, sticky="w", padx=5, pady=5)
     entry_popup_entry_fee = tk.Entry(popup)
-    entry_popup_entry_fee.grid(row=3, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_entry_fee.grid(row=5, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="Is Handicap:").grid(row=4, column=0, sticky="w", padx=5, pady=5)
+    tk.Label(popup, text="Is Handicap:").grid(row=6, column=0, sticky="w", padx=5, pady=5)
 
     def toggle_handicap_fields():
         state = "normal" if var_popup_is_handicap.get() else "hidden"
@@ -59,32 +76,32 @@ def open_add_league_popup():
 
     var_popup_is_handicap = tk.BooleanVar()
     checkbox_popup_is_handicap = tk.Checkbutton(popup, variable=var_popup_is_handicap, command=toggle_handicap_fields)
-    checkbox_popup_is_handicap.grid(row=4, column=1, pady=5, sticky="w")
+    checkbox_popup_is_handicap.grid(row=6, column=1, pady=5, sticky="w")
 
     label_min_rounds = tk.Label(popup, text="Handicap Minimum Rounds:")
-    label_min_rounds.grid(row=5, column=0, sticky="w", padx=5, pady=5)
+    label_min_rounds.grid(row=7, column=0, sticky="w", padx=5, pady=5)
     entry_popup_min_rounds = tk.Entry(popup)
-    entry_popup_min_rounds.grid(row=5, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_min_rounds.grid(row=7, column=1, pady=5, padx=5, sticky="ew")
 
     label_rounds_considered = tk.Label(popup, text="Handicap Rounds Considered:")
-    label_rounds_considered.grid(row=6, column=0, sticky="w", padx=5, pady=5)
+    label_rounds_considered.grid(row=8, column=0, sticky="w", padx=5, pady=5)
     entry_popup_rounds_considered = tk.Entry(popup)
-    entry_popup_rounds_considered.grid(row=6, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_rounds_considered.grid(row=8, column=1, pady=5, padx=5, sticky="ew")
 
     label_years_lookback = tk.Label(popup, text="Handicap Years Lookback:")
-    label_years_lookback.grid(row=7, column=0, sticky="w", padx=5, pady=5)
+    label_years_lookback.grid(row=9, column=0, sticky="w", padx=5, pady=5)
     entry_popup_years_lookback = tk.Entry(popup)
-    entry_popup_years_lookback.grid(row=7, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_years_lookback.grid(row=9, column=1, pady=5, padx=5, sticky="ew")
 
     label_base_score = tk.Label(popup, text="Handicap Base Score:")
-    label_base_score.grid(row=8, column=0, sticky="w", padx=5, pady=5)
+    label_base_score.grid(row=10, column=0, sticky="w", padx=5, pady=5)
     entry_popup_base_score = tk.Entry(popup)
-    entry_popup_base_score.grid(row=8, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_base_score.grid(row=10, column=1, pady=5, padx=5, sticky="ew")
 
     label_multiplier = tk.Label(popup, text="Handicap Multiplier:")
-    label_multiplier.grid(row=9, column=0, sticky="w", padx=5, pady=5)
+    label_multiplier.grid(row=11, column=0, sticky="w", padx=5, pady=5)
     entry_popup_multiplier = tk.Entry(popup)
-    entry_popup_multiplier.grid(row=9, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_multiplier.grid(row=11, column=1, pady=5, padx=5, sticky="ew")
 
     handicap_widgets = [
         label_min_rounds, entry_popup_min_rounds, label_rounds_considered, entry_popup_rounds_considered,
@@ -96,10 +113,16 @@ def open_add_league_popup():
     def submit_popup_league():
         league_name = entry_popup_league_name.get()
         is_handicap = var_popup_is_handicap.get()
-        league_url = entry_popup_league_url.get()
+        
+        # Get all URLs from the listbox
+        urls = [listbox_league_urls.get(i) for i in range(listbox_league_urls.size())]
 
         if not league_name:
             messagebox.showerror("Error", "League name cannot be empty.")
+            return
+        
+        if not urls:
+            messagebox.showerror("Error", "At least one league URL is required.")
             return
 
         # Check if the league name already exists
@@ -128,13 +151,13 @@ def open_add_league_popup():
             return
 
         database.create_league(
-            league_name, league_url, cash_percentage, entry_fee, is_handicap,
+            league_name, urls, cash_percentage, entry_fee, is_handicap,
             min_rounds, rounds_considered, years_lookback, base_score, multiplier
         )
         update_league_dropdown()
         popup.destroy()
 
-    tk.Button(popup, text="Add League", command=submit_popup_league).grid(row=10, columnspan=2, pady=10)
+    tk.Button(popup, text="Add League", command=submit_popup_league).grid(row=12, columnspan=2, pady=10)
 
 def open_edit_league_popup():
     """Open a popup window to edit the selected league."""
@@ -156,22 +179,42 @@ def open_edit_league_popup():
     entry_popup_league_name.insert(0, league['name'])
     entry_popup_league_name.grid(row=0, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="League URL:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+    tk.Label(popup, text="League URL(s):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
     entry_popup_league_url = tk.Entry(popup)
-    entry_popup_league_url.insert(0, league['url'])
     entry_popup_league_url.grid(row=1, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="League Cash Percentage:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+    def add_url_to_list():
+        url = entry_popup_league_url.get().strip()
+        if url:
+            listbox_league_urls.insert('end', url)
+            entry_popup_league_url.delete(0, 'end')
+
+    def remove_selected_url():
+        selected = list(listbox_league_urls.curselection())
+        for index in reversed(selected):
+            listbox_league_urls.delete(index)
+
+    tk.Button(popup, text="Add URL", command=add_url_to_list).grid(row=2, column=0, pady=5, sticky="w", padx=5)
+    tk.Button(popup, text="Remove Selected URL", command=remove_selected_url).grid(row=2, column=1, pady=5, sticky="w", padx=5)
+
+    listbox_league_urls = tk.Listbox(popup, height=4)
+    listbox_league_urls.grid(row=3, column=0, columnspan=2, pady=5, padx=5, sticky="ew")
+    
+    # Load existing URLs into the listbox
+    for url in league.get('urls', []):
+        listbox_league_urls.insert('end', url)
+
+    tk.Label(popup, text="League Cash Percentage:").grid(row=4, column=0, sticky="w", padx=5, pady=5)
     entry_popup_cash_percentage = tk.Entry(popup)
     entry_popup_cash_percentage.insert(0, league['cash_percentage'])
-    entry_popup_cash_percentage.grid(row=2, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_cash_percentage.grid(row=4, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="League Entry Fee:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
+    tk.Label(popup, text="League Entry Fee:").grid(row=5, column=0, sticky="w", padx=5, pady=5)
     entry_popup_entry_fee = tk.Entry(popup)
     entry_popup_entry_fee.insert(0, league['entry_fee'])
-    entry_popup_entry_fee.grid(row=3, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_entry_fee.grid(row=5, column=1, pady=5, padx=5, sticky="ew")
 
-    tk.Label(popup, text="Is Handicap:").grid(row=4, column=0, sticky="w", padx=5, pady=5)
+    tk.Label(popup, text="Is Handicap:").grid(row=6, column=0, sticky="w", padx=5, pady=5)
 
     def toggle_handicap_fields():
         state = "normal" if var_popup_is_handicap.get() else "hidden"
@@ -180,37 +223,37 @@ def open_edit_league_popup():
 
     var_popup_is_handicap = tk.BooleanVar(value=league['is_handicap'])
     checkbox_popup_is_handicap = tk.Checkbutton(popup, variable=var_popup_is_handicap, command=toggle_handicap_fields)
-    checkbox_popup_is_handicap.grid(row=4, column=1, pady=5, sticky="w")
+    checkbox_popup_is_handicap.grid(row=6, column=1, pady=5, sticky="w")
 
     label_min_rounds = tk.Label(popup, text="Handicap Minimum Rounds:")
-    label_min_rounds.grid(row=5, column=0, sticky="w", padx=5, pady=5)
+    label_min_rounds.grid(row=7, column=0, sticky="w", padx=5, pady=5)
     entry_popup_min_rounds = tk.Entry(popup)
     entry_popup_min_rounds.insert(0, league['handicap_minimum_rounds'] or "")
-    entry_popup_min_rounds.grid(row=5, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_min_rounds.grid(row=7, column=1, pady=5, padx=5, sticky="ew")
 
     label_rounds_considered = tk.Label(popup, text="Handicap Rounds Considered:")
-    label_rounds_considered.grid(row=6, column=0, sticky="w", padx=5, pady=5)
+    label_rounds_considered.grid(row=8, column=0, sticky="w", padx=5, pady=5)
     entry_popup_rounds_considered = tk.Entry(popup)
     entry_popup_rounds_considered.insert(0, league['handicap_rounds_considered'] or "")
-    entry_popup_rounds_considered.grid(row=6, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_rounds_considered.grid(row=8, column=1, pady=5, padx=5, sticky="ew")
 
     label_years_lookback = tk.Label(popup, text="Handicap Years Lookback:")
-    label_years_lookback.grid(row=7, column=0, sticky="w", padx=5, pady=5)
+    label_years_lookback.grid(row=9, column=0, sticky="w", padx=5, pady=5)
     entry_popup_years_lookback = tk.Entry(popup)
     entry_popup_years_lookback.insert(0, league['handicap_years_lookback'] or "")
-    entry_popup_years_lookback.grid(row=7, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_years_lookback.grid(row=9, column=1, pady=5, padx=5, sticky="ew")
 
     label_base_score = tk.Label(popup, text="Handicap Base Score:")
-    label_base_score.grid(row=8, column=0, sticky="w", padx=5, pady=5)
+    label_base_score.grid(row=10, column=0, sticky="w", padx=5, pady=5)
     entry_popup_base_score = tk.Entry(popup)
     entry_popup_base_score.insert(0, league['handicap_base_score'] or "")
-    entry_popup_base_score.grid(row=8, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_base_score.grid(row=10, column=1, pady=5, padx=5, sticky="ew")
 
     label_multiplier = tk.Label(popup, text="Handicap Multiplier:")
-    label_multiplier.grid(row=9, column=0, sticky="w", padx=5, pady=5)
+    label_multiplier.grid(row=11, column=0, sticky="w", padx=5, pady=5)
     entry_popup_multiplier = tk.Entry(popup)
     entry_popup_multiplier.insert(0, league['handicap_multiplier'] or "")
-    entry_popup_multiplier.grid(row=9, column=1, pady=5, padx=5, sticky="ew")
+    entry_popup_multiplier.grid(row=11, column=1, pady=5, padx=5, sticky="ew")
 
     handicap_widgets = [
         label_min_rounds, entry_popup_min_rounds, label_rounds_considered, entry_popup_rounds_considered,
@@ -222,10 +265,16 @@ def open_edit_league_popup():
     def submit_popup_league():
         league_name = entry_popup_league_name.get()
         is_handicap = var_popup_is_handicap.get()
-        league_url = entry_popup_league_url.get()
+        
+        # Get all URLs from the listbox
+        urls = [listbox_league_urls.get(i) for i in range(listbox_league_urls.size())]
 
         if not league_name:
             messagebox.showerror("Error", "League name cannot be empty.")
+            return
+        
+        if not urls:
+            messagebox.showerror("Error", "At least one league URL is required.")
             return
 
         try:
@@ -248,13 +297,13 @@ def open_edit_league_popup():
             return
 
         database.update_league(
-            selected_league_id, league_name, league_url, cash_percentage, entry_fee, is_handicap,
+            selected_league_id, league_name, urls, cash_percentage, entry_fee, is_handicap,
             min_rounds, rounds_considered, years_lookback, base_score, multiplier
         )
         update_league_dropdown()
         popup.destroy()
 
-    tk.Button(popup, text="Save Changes", command=submit_popup_league).grid(row=10, columnspan=2, pady=10)
+    tk.Button(popup, text="Save Changes", command=submit_popup_league).grid(row=12, columnspan=2, pady=10)
 
 def open_scrape_scores_popup():
     """Open a popup to scrape scores using the stored league URL."""
@@ -262,8 +311,8 @@ def open_scrape_scores_popup():
         messagebox.showerror("Error", "Please select a league first.")
         return
 
-    league_url = database.fetch_league_url(selected_league_id)
-    if not league_url:
+    league_urls = database.fetch_league_urls(selected_league_id)
+    if not league_urls:
         messagebox.showerror("Error", "No URL configured for the selected league.")
         return
 
@@ -275,6 +324,7 @@ def open_scrape_scores_popup():
     tk.Label(popup, text="Select the weeks you want to import from udisc", anchor="w").pack(pady=10, anchor="w", padx=10)
 
     tk.Label(popup, text="UDisc Lookback Year:").pack(pady=10, padx=10, anchor="w")
+    lookback_date = tk.StringVar()
     year_combobox = Combobox(popup, textvariable=lookback_date, state="readonly")
     year_combobox['values'] = [str(year) for year in range(2000, 2031)]
     year_combobox.pack(pady=5, padx=10, fill="x")
@@ -291,8 +341,20 @@ def open_scrape_scores_popup():
             return
 
         try:
-            weeks_data = scrape_udisc.get_event_links(league_url, selected_year)
-            for i, week_url in enumerate(weeks_data):
+            all_weeks_data = []
+            for url in league_urls:
+                weeks_data = scrape_udisc.get_event_links(url, selected_year)
+                all_weeks_data.extend(weeks_data)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_weeks_data = []
+            for week_url in all_weeks_data:
+                if week_url not in seen:
+                    seen.add(week_url)
+                    unique_weeks_data.append(week_url)
+            
+            for i, week_url in enumerate(unique_weeks_data):
                 raw_week_name = week_url.split("events/")[1].rsplit("-", 1)[0].strip("-")
                 week_name = " ".join(word.capitalize() for word in raw_week_name.split("-"))
 
@@ -365,7 +427,6 @@ def open_scrape_scores_popup():
             return
 
         try:
-            
             scrape_udisc.scrape(selected_weeks, selected_league_id)
             database.execute_sql_script('sql/replace_scores.sql')
             database.execute_update_points_script(selected_league_id)

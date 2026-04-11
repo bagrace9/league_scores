@@ -7,6 +7,8 @@ sql/
 
 results/
 
+exports/
+
 __pycache__/
 
 league_scores.db

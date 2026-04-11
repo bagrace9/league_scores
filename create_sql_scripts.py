@@ -55,7 +55,6 @@ CREATE table if not exists scores (
 CREATE table if not exists leagues (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             league_name TEXT,            
-            league_url TEXT,
             league_entry_fee float,
             league_cash_percentage float,
             league_is_handicap BOOLEAN,
@@ -66,6 +65,14 @@ CREATE table if not exists leagues (
             handicap_multiplier float,
             create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+;
+
+CREATE table if not exists league_urls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            league_id INTEGER,
+            url TEXT,
+            create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
 ;
 """
@@ -284,7 +291,7 @@ select player
       ,coalesce(
                 first_value(next_handicap) over (partition by player,league_id order by start_date desc)
                , 0)  Handicap
-from scores
+from scores s
 where league_id = {league_id}
   and year >= strftime('%Y', 'now', '-1 year')
   and exists (select 1

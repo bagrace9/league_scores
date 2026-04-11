@@ -35,8 +35,8 @@ def find_score_position(column_data):
         title_rows = row.find_all('th')
         row_data = [data.text.strip() for data in title_rows]
         row_data = [''.join(filter(lambda x: not x.isdigit(), data)) for data in row_data]
-        if 'Round' in row_data:
-            score_position = row_data.index('Round')
+        if any('Round' in data for data in row_data):
+            score_position = next(i for i, data in enumerate(row_data) if 'Round' in data)
             score_position = -1 * (len(row_data) - score_position)
             return score_position
 
@@ -47,14 +47,39 @@ def parse_scores(soup, event, divisions, start_date_str, end_date_str):
     df_raw_scores = pd.DataFrame(columns=['start_date_str', 'end_date_str', 'event', 'division', 'player', 'score'])
     column_data = soup.find_all('tr')
     score_position = find_score_position(column_data)
+    div = None
+
     for row in column_data:
         row_data = row.find_all('td')
         player_score = [data.text.strip() for data in row_data]
         if player_score == []:
-            div = divisions.pop(0)
+            if divisions:
+                div = divisions.pop(0)
+            continue
+
+        if score_position is None or score_position >= len(player_score) or score_position < -len(player_score):
+            continue
+
+        raw_score = player_score[score_position]
+        
+        if '(' in raw_score and ')' in raw_score:
+            inner = raw_score.split('(', 1)[1].split(')', 1)[0].strip()
+            if inner.replace('-', '').isdigit():
+                week_score = inner
+            else:
+                week_score = raw_score
         else:
-            curr_score = pd.DataFrame({'start_date_str': [start_date_str], 'end_date_str': [end_date_str], 'event': [event], 'division': [div], 'player': [player_score[1]], 'score': [player_score[score_position]]})
-            df_raw_scores = pd.concat([df_raw_scores, curr_score], ignore_index=True)
+            week_score = raw_score
+
+        curr_score = pd.DataFrame({
+            'start_date_str': [start_date_str],
+            'end_date_str': [end_date_str],
+            'event': [event],
+            'division': [div],
+            'player': [player_score[1] if len(player_score) > 1 else ''],
+            'score': [week_score]
+        })
+        df_raw_scores = pd.concat([df_raw_scores, curr_score], ignore_index=True)
     return df_raw_scores
 
 # Get scores from multiple URLs and combine them into a single DataFrame
