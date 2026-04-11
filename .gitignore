@@ -1,19 +1,15 @@
-config.ini
 
 log/
 
 .venv/
 
-results/
+sql/
 
-leagues.json
-leagues*test.json
+results/
 
 __pycache__/
 
 league_scores.db
-
-sql/
 
 dist/
 
