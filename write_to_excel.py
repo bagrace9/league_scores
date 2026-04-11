@@ -4,6 +4,17 @@ import sqlite3
 from datetime import datetime
 import calc_payouts
 
+
+def autofit_columns(writer, df, sheet_name, startrow=0, startcol=0):
+    worksheet = writer.sheets[sheet_name]
+    for i, col in enumerate(df.columns):
+        # Get max length of column header and data
+        max_len = max(
+            df[col].astype(str).map(len).max(),
+            len(str(col))
+        )
+        worksheet.set_column(startcol + i, startcol + i, max_len + 2)  # Add padding
+
 def write_division_to_sheet(writer, df_start_date, league_id, handicap_enabled=False):
     # Ensure start_date is stripped of time
     df_start_date['start_date'] = pd.to_datetime(df_start_date['start_date']).dt.date
@@ -85,6 +96,7 @@ def save_to_excel(df_season_scores, full_path, league_id, handicap_enabled):
         for start_date in distinct_start_dates:
             df_start_date = df_season_scores[df_season_scores['start_date'] == start_date]
             write_division_to_sheet(writer, df_start_date, league_id, handicap_enabled)
+        
 
 def connect_to_sqlite():
     """Establish a connection to the SQLite database."""
