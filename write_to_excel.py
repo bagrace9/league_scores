@@ -83,7 +83,7 @@ def write_total_points_to_sheet(writer, df_season_scores):
         df_div_total_points.to_excel(writer, startrow=2, startcol=startcol, sheet_name='Total Points', index=False)
         startcol += 5
 
-def save_to_excel(df_season_scores, full_path, league_id, handicap_enabled):
+def save_to_excel(df_season_scores, full_path, league_id, handicap_enabled, df_handicaps=None):
     # Ensure the results directory exists
     results_dir = os.path.dirname(full_path)
     os.makedirs(results_dir, exist_ok=True)        
@@ -96,6 +96,11 @@ def save_to_excel(df_season_scores, full_path, league_id, handicap_enabled):
         for start_date in distinct_start_dates:
             df_start_date = df_season_scores[df_season_scores['start_date'] == start_date]
             write_division_to_sheet(writer, df_start_date, league_id, handicap_enabled)
+        
+        # Write handicaps to a new sheet if provided
+        if df_handicaps is not None:
+            df_handicaps.to_excel(writer, sheet_name='Handicaps', index=False)
+            autofit_columns(writer, df_handicaps, 'Handicaps')
         
 
 def connect_to_sqlite():
@@ -128,6 +133,14 @@ def get_spreadsheet_data(league_id):
     """
     df_season_scores = pd.read_sql_query(query, conn, params=(league_id,))
 
+    # Query the handicaps data if handicap is enabled
+    if handicap_enabled:
+        with open('sql/pull_all_handicaps.sql', 'r') as f:
+            query_handicaps = f.read().replace('{league_id}', str(league_id))
+        df_handicaps = pd.read_sql_query(query_handicaps, conn)
+    else:
+        df_handicaps = None
+
     # Close the database connection
     conn.close()
 
@@ -136,4 +149,4 @@ def get_spreadsheet_data(league_id):
     output_file = f"results/{league_name}_{current_date}_scores.xlsx"
 
     # Call save_to_excel
-    save_to_excel(df_season_scores, output_file, league_id, handicap_enabled)
+    save_to_excel(df_season_scores, output_file, league_id, handicap_enabled, df_handicaps)

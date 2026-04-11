@@ -1,4 +1,3 @@
-config.ini
 
 log/
 
@@ -6,14 +5,9 @@ log/
 
 results/
 
-leagues.json
-leagues*test.json
-
 __pycache__/
 
 league_scores.db
-
-sql/
 
 dist/
 
