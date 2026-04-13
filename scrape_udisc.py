@@ -1,9 +1,12 @@
+import logging
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
-import sqlite3
-import database
+import os
 from datetime import datetime
+from urllib.parse import urljoin
+
+logger = logging.getLogger(__name__)
+EXPORTS_DIR = os.path.join(os.path.dirname(__file__), 'exports')
 
 
 # Fetch page content
@@ -12,105 +15,14 @@ def fetch_page_content(url):
     response.raise_for_status()
     return BeautifulSoup(response.content, 'html.parser')
 
-# Parse event details
-def parse_event_details(soup):
-    headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
-    if len(headings) < 5:
-        return None, None
-    event = headings[0].text.strip()
-    divisions = [heading.text.strip() for heading in headings[3:-1]]
-    return event, divisions
-
-# Parse league dates
-def parse_league_dates(soup):
-    date_elements = soup.find_all('time', limit=2)
-    if len(date_elements) < 2:
-        return None, None
-    start_date_str = datetime.fromisoformat(date_elements[0]['datetime'])
-    end_date_str = datetime.fromisoformat(date_elements[1]['datetime'])
-    return start_date_str, end_date_str
-
-def find_score_position(column_data):
-    for row in column_data:
-        title_rows = row.find_all('th')
-        row_data = [data.text.strip() for data in title_rows]
-        row_data = [''.join(filter(lambda x: not x.isdigit(), data)) for data in row_data]
-        if any('Round' in data for data in row_data):
-            score_position = next(i for i, data in enumerate(row_data) if 'Round' in data)
-            score_position = -1 * (len(row_data) - score_position)
-            return score_position
-
     
 
-# Parse scores from the soup object and return a DataFrame
-def parse_scores(soup, event, divisions, start_date_str, end_date_str):
-    df_raw_scores = pd.DataFrame(columns=['start_date_str', 'end_date_str', 'event', 'division', 'player', 'score'])
-    column_data = soup.find_all('tr')
-    score_position = find_score_position(column_data)
-    div = None
-
-    for row in column_data:
-        row_data = row.find_all('td')
-        player_score = [data.text.strip() for data in row_data]
-        if player_score == []:
-            if divisions:
-                div = divisions.pop(0)
-            continue
-
-        if score_position is None or score_position >= len(player_score) or score_position < -len(player_score):
-            continue
-
-        raw_score = player_score[score_position]
-        
-        if '(' in raw_score and ')' in raw_score:
-            inner = raw_score.split('(', 1)[1].split(')', 1)[0].strip()
-            if inner.replace('-', '').isdigit():
-                week_score = inner
-            else:
-                week_score = raw_score
-        else:
-            week_score = raw_score
-
-        curr_score = pd.DataFrame({
-            'start_date_str': [start_date_str],
-            'end_date_str': [end_date_str],
-            'event': [event],
-            'division': [div],
-            'player': [player_score[1] if len(player_score) > 1 else ''],
-            'score': [week_score]
-        })
-        df_raw_scores = pd.concat([df_raw_scores, curr_score], ignore_index=True)
-    return df_raw_scores
-
-# Get scores from multiple URLs and combine them into a single DataFrame
-def get_scores(weeks):
-    df_raw_scores = pd.DataFrame(columns=['start_date_str', 'end_date_str', 'event', 'division', 'player', 'score'])
-    for _, week in weeks.iterrows():
-        url = week['url']  
-        
-        soup = fetch_page_content(url)
-        if not soup:
-            continue
-        event, divisions = parse_event_details(soup)
-        if event is None:
-            continue
-        start_date_str, end_date_str = parse_league_dates(soup)
-        if not start_date_str or not end_date_str:
-            continue
-
-        df_week_scores = parse_scores(soup, event, divisions, start_date_str, end_date_str)
-        df_week_scores['points_multiplyer'] = week['points_multiplyer']
-        df_week_scores['handicap_excluded'] = week['handicap_excluded']
-
-        df_raw_scores = pd.concat([df_raw_scores, df_week_scores], ignore_index=True)
-
-    return df_raw_scores
-
-# Get event links by iterating through pages and filtering relevant links
-def get_event_links(url,lookback_year):
+# Get event links by iterating through pages
+def get_event_links(url):
     links = []
     last_len = -1
     page = 1
+    lookback_year = 2025
     while len(links) > last_len:
         page_url = url + '/schedule?page=' + str(page)
         last_len = len(links)
@@ -127,34 +39,64 @@ def get_event_links(url,lookback_year):
         page += 1
     return links
 
+def find_download_links_on_page(page_url):
+    """Find event leaderboard links on any UDisc page."""
+    links = []
+    seen = set()
+    soup = fetch_page_content(page_url)
+    if not soup:
+        return []
+
+    for a_tag in soup.find_all('a', href=True):
+        link = a_tag['href']
+        if '/events' in link and '/leaderboard' in link:
+            event_url = urljoin(page_url, link)
+            if event_url in seen:
+                continue
+            seen.add(event_url)
+            links.append((event_url))
+
+    return links
 
 
-def save_to_database(df_scores, league_id, db_path="league_scores.db"):
-  
-    # Connect to SQLite database (or create it if it doesn't exist)
-    conn = sqlite3.connect(db_path)
-
-    # Remove rows where the player ends with "DNF" (case-sensitive)
-    df_scores = df_scores[~df_scores['player'].str.endswith('DNF', na=False)]
-    
-    df_scores['league_id'] = league_id
-    df_scores['start_date'] = pd.to_datetime(df_scores['start_date_str'], format='%b %d, %Y')
-    df_scores['end_date'] = pd.to_datetime(df_scores['end_date_str'], format='%b %d, %Y')
-
-    df_scores.to_sql('impt_raw_scores', conn, if_exists='append', index=False)
-    
-    # Close the connection
-    conn.close()
-
-
-def scrape(weeks,league_id):   
-
-    database.execute_sql("DELETE FROM impt_raw_scores")
-    
-    df_scores = get_scores(weeks)
-
-    # Save the results to a SQLite database
-    save_to_database(df_scores,league_id)
-
-    return df_scores
-
+def download_event_data(export_url):
+    """Download Excel file from the event's leaderboard export URL."""
+    try:
+        # Download the Excel file
+        response = requests.get(export_url)
+        response.raise_for_status()
+        
+        # Create exports directory if it doesn't exist
+        os.makedirs(EXPORTS_DIR, exist_ok=True)
+        
+        # Get default filename from response header or use fallback
+        content_disposition = response.headers.get('Content-Disposition', '')
+        if 'filename=' in content_disposition:
+            default_filename = content_disposition.split('filename=')[1].strip('"')
+            base_name = default_filename.rsplit('.', 1)[0]  # Remove extension
+        else:
+            base_name = 'udisc_export'
+        
+        # Add timestamp to filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{base_name}_{timestamp}.xlsx"
+        filepath = os.path.join(EXPORTS_DIR, filename)
+        
+        # Save the file
+        with open(filepath, 'wb') as f:
+            f.write(response.content)
+        logger.info(f"Saved event spreadsheet to {filepath}")
+        
+        return {
+            'export_url': export_url,
+            'filename': filename,
+            'filepath': filepath,
+            'success': True
+        }
+        
+    except requests.RequestException as e:
+        return {
+            'export_url': export_url,
+            'error': str(e),
+            'success': False
+        }

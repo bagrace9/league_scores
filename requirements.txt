@@ -1,7 +1,6 @@
+Flask
 requests
 bs4
 pandas
-discord
-schedule
-tkinter
-tkcalendar
+psycopg2
+openpyxl

@@ -1,11 +1,12 @@
 
 log/
+logs/
 
 .venv/
 
 sql/
 
-results/
+scrap/
 
 exports/
 
@@ -17,4 +18,6 @@ dist/
 
 build/
 
-league_scores_ui.spec
+config/db_config.txt
+
+.vscode/
