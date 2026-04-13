@@ -1,3 +1,9 @@
+"""
+Utility functions for the league scores application.
+
+Includes payout calculation helpers and URL parsing/formatting
+for league configuration storage.
+"""
 import math
 
 

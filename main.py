@@ -1,3 +1,12 @@
+"""
+Entry point for the league scores pipeline.
+
+Orchestrates the full run in order:
+  1. Ensure all database tables and the payouts lookup table exist.
+  2. Scrape UDisc for new event export links across all configured leagues.
+  3. Download and import any events not yet in the database.
+  4. Rebuild handicaps, final scores, and views from the newly imported data.
+"""
 import scrape_udisc
 import database
 from datetime import date
@@ -60,11 +69,8 @@ def main():
                                 continue
 
                             downloaded_files.append((league_id, downloaded_file))
-
-                            logger.info(f"Downloading event spreadsheet: ({export_url})")
-                        
                             imported_urls.add(export_url)
-                            logger.info(f"Downloaded event: {export_url}")
+                            logger.info(f"Queued for import: {downloaded_file.filename}")
                         else:
                             logger.error(f"Failed to download {export_url}: {result['error']}")
                             
@@ -94,23 +100,19 @@ def main():
 
     logger.info('Finished importing files.')
 
-    try:
-        logger.info(f"Running create views script: {VIEWS_SQL_PATH}")
-        database.execute_sql_script(VIEWS_SQL_PATH)
-
-        logger.info(f"Running handicap script: {HANDICAPS_SQL_PATH}")
-        database.execute_sql_script(HANDICAPS_SQL_PATH)
-
-        logger.info(f"Running final scores script: {FINAL_SCORES_SQL_PATH}")
-        database.execute_sql_script(FINAL_SCORES_SQL_PATH)
-
-        logger.info('Finished view, handicap, and final score updates.')
-    except Exception as error:
-        logger.error(f"Failed running post-import scoring scripts: {error}")
-    
-    
-    
-    
+    # Run in dependency order: handicaps first, then final scores (which joins
+    # handicaps), then views (which select from final_scores).
+    for label, path in [
+        ('handicap', HANDICAPS_SQL_PATH),
+        ('final scores', FINAL_SCORES_SQL_PATH),
+        ('views', VIEWS_SQL_PATH),
+    ]:
+        try:
+            logger.info(f"Running {label} script: {path}")
+            database.execute_sql_script(path)
+            logger.info(f"Finished {label} update.")
+        except Exception as error:
+            logger.error(f"Failed running {label} script ({path}): {error}")
 
 
 if __name__ == "__main__":

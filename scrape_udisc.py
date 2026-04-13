@@ -1,40 +1,57 @@
+"""
+UDisc web scraping utilities for the league scores pipeline.
+
+Handles league schedule pagination, event leaderboard link discovery,
+and leaderboard export file downloads.
+"""
 import logging
-import requests
-from bs4 import BeautifulSoup
 import os
 from datetime import datetime
 from urllib.parse import urljoin
+
+import requests
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 EXPORTS_DIR = os.path.join(os.path.dirname(__file__), 'exports')
 
 
-# Fetch page content
 def fetch_page_content(url):
+    """Fetch and parse the HTML content of a URL.
+
+    Raises requests.HTTPError if the server returns a non-2xx status.
+    """
     response = requests.get(url)
     response.raise_for_status()
     return BeautifulSoup(response.content, 'html.parser')
 
-    
 
-# Get event links by iterating through pages
 def get_event_links(url):
+    """Return all event leaderboard URLs from a league's schedule pages.
+
+    Paginates through the schedule until a page adds no new links. Only events
+    from the previous calendar year onward are included to limit scope and avoid
+    reprocessing old data.
+    """
     links = []
     last_len = -1
     page = 1
-    lookback_year = 2025
+    # Include prior year so late-season carryover events are not missed.
+    lookback_year = datetime.now().year - 1
     while len(links) > last_len:
-        page_url = url + '/schedule?page=' + str(page)
+        page_url = f"{url}/schedule?page={page}"
         last_len = len(links)
         soup = fetch_page_content(page_url)
         if not soup:
             break
         for a_tag in soup.find_all('a', href=True):
             year_span = a_tag.find_next('span', class_='ml-2 font-normal text-sm text-subtle')
-            if year_span:
-                link_year = year_span.text.strip()
             link = a_tag['href']
-            if link.startswith('/events') and '/leaderboard' in link and int(link_year) >= int(lookback_year):
+            # Skip links where no year label is present — cannot validate recency.
+            if year_span is None:
+                continue
+            link_year = year_span.text.strip()
+            if link.startswith('/events') and '/leaderboard' in link and int(link_year) >= lookback_year:
                 links.append('https://udisc.com' + link)
         page += 1
     return links

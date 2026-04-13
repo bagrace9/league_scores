@@ -1,12 +1,22 @@
-from psycopg2.extras import RealDictCursor
-import psycopg2
-import pandas as pd
-import re
+"""
+Database access layer for the league scores application.
+
+Provides functions for connecting to PostgreSQL and performing all read/write
+operations for leagues, events, raw scores, hole scores, handicaps, and payouts.
+"""
+import logging
 import math
+import re
 from pathlib import Path
+
+import pandas as pd
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 from config import get_db_connection_string
 from utils import format_league_urls, parse_league_urls
+
+logger = logging.getLogger(__name__)
 
 
 def connect_to_postgresql():
@@ -15,11 +25,12 @@ def connect_to_postgresql():
         connection_string = get_db_connection_string()
         return psycopg2.connect(connection_string)
     except psycopg2.Error as e:
-        print(f"Error connecting to PostgreSQL database: {e}")
+        logger.error("Error connecting to PostgreSQL database: %s", e)
         return None
 
 
 def _execute_script(script_path):
+    """Read and execute a SQL script file within a single transaction."""
     conn = connect_to_postgresql()
     if conn is None:
         raise Exception("Failed to connect to the database.")
@@ -223,6 +234,7 @@ def _derive_event_name_from_filename(filename):
 
 
 def _normalize_column_name(name):
+    """Lowercase and strip all non-alphanumeric/underscore characters from a column name."""
     return re.sub(r"[^a-z0-9_]", "", str(name).lower())
 
 
@@ -238,10 +250,12 @@ def _load_import_dataframe(file_path):
 
 
 def _normalize_row(row):
+    """Return a copy of a DataFrame row dict with all keys lowercased and stripped."""
     return {str(k).strip().lower(): v for k, v in row.items()}
 
 
 def _pick_value(row, keys, default=None):
+    """Return the first non-None, non-empty value found in a row dict using the given key candidates."""
     for key in keys:
         if key in row and row[key] not in (None, ""):
             return row[key]
@@ -249,6 +263,11 @@ def _pick_value(row, keys, default=None):
 
 
 def _to_int(value):
+    """Coerce a value to int, returning None for empty or un-parseable inputs.
+
+    Converts through float first to handle decimal strings like '3.0' that
+    Excel sometimes produces for integer-valued cells.
+    """
     if value is None:
         return None
     if isinstance(value, str) and value.strip() == "":
@@ -260,6 +279,7 @@ def _to_int(value):
 
 
 def _to_text(value):
+    """Coerce a value to a stripped string, returning None for empty or null inputs."""
     if value is None:
         return None
     text = str(value).strip()
@@ -267,12 +287,15 @@ def _to_text(value):
 
 
 def _extract_hole_number(column_name):
+    """Extract a hole number (1-36) from a normalized column name like 'hole_7'.
+
+    Returns None if the column is not a hole column or the number is out of range.
+    """
     key = str(column_name).strip().lower()
     match = re.match(r"^hole_(\d+)$", key)
     if match:
         hole_number = int(match.group(1))
         return hole_number if 1 <= hole_number <= 36 else None
-
     return None
 
 
@@ -336,6 +359,7 @@ def import_downloaded_file(league_id, downloaded_file):
         )
         event_id = cursor.fetchone()[0]
 
+        # Insert one raw_score row per player, followed by their individual hole scores.
         for raw_row in df.to_dict(orient="records"):
             row = _normalize_row(raw_row)
 
@@ -370,6 +394,7 @@ def import_downloaded_file(league_id, downloaded_file):
             )
             raw_score_id = cursor.fetchone()[0]
 
+            # Insert a hole_score row for each hole column present in the export.
             for column_name, value in row.items():
                 hole_number = _extract_hole_number(column_name)
                 hole_score = _to_int(value)
@@ -400,9 +425,9 @@ def import_downloaded_file(league_id, downloaded_file):
 def insert_event_record(
         league_id,
         event_name,
-    export_url,
+        export_url,
         event_end_date=None,
-    num_players=None,
+        num_players=None,
         is_imported=False,
 ):
     """Insert an event record to the database."""
@@ -610,8 +635,15 @@ def fetch_league_by_id(league_id):
 
 
 def create_payout_table():
-    """Drop and recreate payouts table from a pandas DataFrame."""
+    """Drop and recreate the payouts table.
+
+    Builds payout percentages for 1-100 players using an exponential decay model.
+    The top ceil(n / 3) finishers are paid, with each successive position receiving
+    64% of the prior position's share. Pre-computing these values here lets the
+    scoring SQL join directly without recalculating on every run.
+    """
     payout_rows = []
+    # Geometric decay factor: each paid position earns this fraction of the previous one's share.
     decay = 0.64
 
     for n_players in range(1, 101):
@@ -656,7 +688,7 @@ def create_payout_table():
 
         cursor.executemany(
             """
-                        INSERT INTO payouts (
+            INSERT INTO payouts (
                   n_players
                 , position
                 , weight

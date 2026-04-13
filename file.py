@@ -1,3 +1,9 @@
+"""
+File domain object representing a downloaded UDisc leaderboard export.
+
+Encapsulates file metadata, parsed event dates, and file system operations
+(move, delete) for a single downloaded event spreadsheet.
+"""
 from pathlib import Path
 import re
 import shutil
