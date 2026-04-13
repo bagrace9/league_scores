@@ -73,46 +73,50 @@ def main():
                             logger.info(f"Queued for import: {downloaded_file.filename}")
                         else:
                             logger.error(f"Failed to download {export_url}: {result['error']}")
-                            
-    logger.info(f"Finished downloading files. Starting import of {len(downloaded_files)} new files.")
+    
+    if not downloaded_files:
+        logger.info("No new files to import.")
+        
+    else:
+        logger.info(f"Finished downloading files. Starting import of {len(downloaded_files)} new files.")
 
-    for league_id, downloaded_file in downloaded_files:
-        try:
-            event_id = database.import_downloaded_file(league_id, downloaded_file)
-            logger.info(
-                f"Imported file into events/raw_scores/hole_scores (event_id={event_id}): {downloaded_file.filename}"
-            )
-
-            moved = downloaded_file.move_to_directory(imported_dir)
-            if moved:
-                database.update_event_file_metadata(
-                    event_id,
-                    downloaded_file.filename,
-                    downloaded_file.filepath,
+        for league_id, downloaded_file in downloaded_files:
+            try:
+                event_id = database.import_downloaded_file(league_id, downloaded_file)
+                logger.info(
+                    f"Imported file into events/raw_scores/hole_scores (event_id={event_id}): {downloaded_file.filename}"
                 )
-                logger.info(f"Moved imported file to {downloaded_file.filepath}")
-            else:
-                logger.warning(f"Could not move imported file: {downloaded_file.filename}")
-        except Exception as error:
-            logger.error(
-                f"Failed to import file {downloaded_file.filename}: {error}"
-            )
 
-    logger.info('Finished importing files.')
+                moved = downloaded_file.move_to_directory(imported_dir)
+                if moved:
+                    database.update_event_file_metadata(
+                        event_id,
+                        downloaded_file.filename,
+                        downloaded_file.filepath,
+                    )
+                    logger.info(f"Moved imported file to {downloaded_file.filepath}")
+                else:
+                    logger.warning(f"Could not move imported file: {downloaded_file.filename}")
+            except Exception as error:
+                logger.error(
+                    f"Failed to import file {downloaded_file.filename}: {error}"
+                )
 
-    # Run in dependency order: handicaps first, then final scores (which joins
-    # handicaps), then views (which select from final_scores).
-    for label, path in [
-        ('handicap', HANDICAPS_SQL_PATH),
-        ('final scores', FINAL_SCORES_SQL_PATH),
-        ('views', VIEWS_SQL_PATH),
-    ]:
-        try:
-            logger.info(f"Running {label} script: {path}")
-            database.execute_sql_script(path)
-            logger.info(f"Finished {label} update.")
-        except Exception as error:
-            logger.error(f"Failed running {label} script ({path}): {error}")
+        logger.info('Finished importing files.')
+
+        # Run in dependency order: handicaps first, then final scores (which joins
+        # handicaps), then views (which select from final_scores).
+        for label, path in [
+            ('handicap', HANDICAPS_SQL_PATH),
+            ('final scores', FINAL_SCORES_SQL_PATH),
+            ('views', VIEWS_SQL_PATH),
+        ]:
+            try:
+                logger.info(f"Running {label} script: {path}")
+                database.execute_sql_script(path)
+                logger.info(f"Finished {label} update.")
+            except Exception as error:
+                logger.error(f"Failed running {label} script ({path}): {error}")
 
 
 if __name__ == "__main__":

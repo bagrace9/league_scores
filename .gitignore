@@ -4,8 +4,6 @@ logs/
 
 .venv/
 
-sql/
-
 scrap/
 
 exports/
