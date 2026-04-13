@@ -1,3 +1,9 @@
+"""
+League domain object for the league scores application.
+
+Wraps the database layer to provide a clean interface for creating,
+reading, and updating league records and their handicap settings.
+"""
 from database import create_league as db_create_league
 from database import update_league as db_update_league
 from database import fetch_leagues as db_fetch_leagues

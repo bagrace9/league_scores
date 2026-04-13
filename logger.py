@@ -1,3 +1,9 @@
+"""
+Logging configuration for the league scores application.
+
+Sets up a timestamped file handler alongside a console handler so every
+run produces a dated log file in the logs/ directory.
+"""
 import logging
 from datetime import datetime
 from pathlib import Path
