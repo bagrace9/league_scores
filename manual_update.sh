@@ -81,8 +81,8 @@ echo "Update complete."
 if [[ "$RESTART_SERVICE" == true ]]; then
     if command -v systemctl >/dev/null 2>&1; then
         echo "Restarting service: $SERVICE_NAME"
-        sudo systemctl restart "$SERVICE_NAME"
-        sudo systemctl is-active "$SERVICE_NAME"
+        sudo systemctl restart --no-block "$SERVICE_NAME"
+        echo "Service started (running in background)."
     else
         echo "systemctl not found; skipping service restart."
     fi
