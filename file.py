@@ -7,7 +7,7 @@ Encapsulates file metadata, parsed event dates, and file system operations
 from pathlib import Path
 import re
 import shutil
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 
@@ -45,9 +45,12 @@ class File:
 
         try:
             if "-" in event_end_raw:
-                event_end_date = datetime.strptime(event_end_raw, "%Y-%m-%d").date()
+                file_date = datetime.strptime(event_end_raw, "%Y-%m-%d").date()
             else:
-                event_end_date = datetime.strptime(event_end_raw, "%Y%m%d").date()
+                file_date = datetime.strptime(event_end_raw, "%Y%m%d").date()
+            # Advance to Friday (weekday 4) of the same week
+            days_until_friday = (4 - file_date.weekday()) % 7
+            event_end_date = file_date + timedelta(days=days_until_friday)
             download_date = datetime.strptime(download_raw, "%Y%m%d_%H%M%S")
             return event_end_date, download_date
         except ValueError:
