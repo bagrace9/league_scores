@@ -25,8 +25,9 @@ WITH ranked_scores AS (
         , l.handicap_base_score
         , l.handicap_multiplier
         , rs.raw_score_id
-        , rs.player_username
         , rs.raw_score
+        , rs.player_username
+        , e.event_end_date 
         , ROW_NUMBER() OVER (
                                 PARTITION BY l.league_id, rs.player_username
                                 ORDER BY e.event_end_date DESC 
@@ -38,49 +39,61 @@ WITH ranked_scores AS (
     join leagues l
       ON l.league_id = rs.league_id
     where e.is_excluded = false 
-      and EXTRACT(YEAR FROM e.event_end_date) >= EXTRACT(YEAR FROM CURRENT_DATE) - 1
       and l.league_is_handicap = true
       and e.is_excluded = false
 
-      --- only consider players for handicap calculation if they have the 
-      --- minimum required rounds either this or last year
-      and exists (select 1
-                  from raw_scores rs2
-                  join events e2
-                      on rs2.event_id = e2.event_id
-                  where rs2.league_id = l.league_id
-                    and rs2.player_username = rs.player_username
-                    and EXTRACT(YEAR FROM e2.event_end_date) >= EXTRACT(YEAR FROM CURRENT_DATE) - l.handicap_years_lookback
-                    and e2.is_excluded = false
-                  group by 
-                        rs2.league_id
-                      , rs2.player_username
-                      , EXTRACT(YEAR FROM e2.event_end_date)
-                  having count(1) >= l.handicap_minimum_rounds
-                    )
 )
+, next_handicaps AS (
 SELECT
       rs1.league_id
     , rs1.raw_score_id
     , rs1.player_username
-    , ROUND((AVG(rs2.raw_score) - rs1.handicap_base_score) * rs1.handicap_multiplier, 0) AS handicap
-    , CURRENT_TIMESTAMP AS create_time
+    , rs1.event_end_date
+    , rs1.raw_score
+    , case when count(*) < rs1.handicap_minimum_rounds
+           then ROUND((AVG(rs2.raw_score) - rs1.handicap_base_score) * rs1.handicap_multiplier, 0) 
+           else 0 
+           end AS next_handicap
+    , STRING_AGG(rs2.raw_score::text, ',' order by rs2.rn) AS next_handicap_scores
+    , COUNT(*) AS lookback_count
 FROM ranked_scores rs1
 -- rs2 is the lookback window: the N rounds scored just before rs1's round.
 join ranked_scores rs2
     on rs2.league_id = rs1.league_id
     and rs2.player_username = rs1.player_username
-    and rs2.rn BETWEEN rs1.rn + 1 and rs1.rn + rs1.handicap_rounds_considered
-    -- Only produce a handicap row for each player's most-recent rounds.
-    WHERE rs1.rn <= rs1.handicap_rounds_considered
+    and rs2.rn BETWEEN rs1.rn and rs1.rn + rs1.handicap_rounds_considered -1
+where EXTRACT(YEAR FROM rs1.event_end_date) >= EXTRACT(YEAR FROM CURRENT_DATE) - 1
 GROUP BY
       rs1.league_id
     , rs1.player_username
-    ,rs1.raw_score_id
-    ,rs1.handicap_base_score
-    ,rs1.handicap_multiplier
--- Exclude players whose average does not exceed the base score
--- (already scoring at or below scratch; no positive handicap applies).
-having (AVG(rs2.raw_score) > rs1.handicap_base_score)
+    , rs1.raw_score_id
+    , rs1.handicap_base_score
+    , rs1.handicap_multiplier
+    , rs1.handicap_minimum_rounds
+    , rs1.event_end_date
+    , rs1.raw_score
+)
+
+SELECT
+      league_id
+    , raw_score_id
+    , player_username
+    , greatest(next_handicap, 0) AS next_handicap
+    , next_handicap_scores
+    , event_end_date
+    , raw_score
+    ,lag(greatest(next_handicap, 0)) 
+            OVER (
+            PARTITION BY league_id, player_username
+            ORDER BY event_end_date
+         ) AS handicap
+    ,lag(next_handicap_scores) OVER (
+            PARTITION BY league_id, player_username
+            ORDER BY event_end_date
+    ) AS handicap_scores
+  
+    , CURRENT_TIMESTAMP AS create_time
+FROM next_handicaps
+
 
 ;

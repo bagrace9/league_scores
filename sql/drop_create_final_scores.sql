@@ -1,5 +1,5 @@
 -- =============================================================================
--- merge_into_final_scores.sql
+-- drop_create_final_scores.sql
 -- Rebuilds the final_scores table from raw data each run.
 --
 -- For every non-excluded event, calculates:
@@ -25,7 +25,10 @@ with scores_with_ranks as (
         , rs.player_name
         , rs.player_username
         , rs.raw_score
-        , h.handicap AS handicap
+        , h.handicap 
+        , h.handicap_scores
+        , h.next_handicap
+        , h.next_handicap_scores
         , COALESCE(rs.raw_score - h.handicap, rs.raw_score) AS adjusted_score
         -- place: 1 = lowest adjusted score (best finish)
         , rank() OVER (PARTITION BY rs.league_id, rs.division, e.event_end_date ORDER BY COALESCE(rs.raw_score - h.handicap, rs.raw_score)) AS place
@@ -60,6 +63,9 @@ SELECT
         , swr.player_username
         , swr.raw_score
         , swr.handicap AS handicap
+        , swr.handicap_scores
+        , swr.next_handicap
+        , swr.next_handicap_scores
         , swr.adjusted_score
         , swr.place
         , swr.points
@@ -69,6 +75,7 @@ SELECT
                then round((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pp.percentage, 0)
                else null
                end AS payout
+        
 
 FROM scores_with_ranks swr
 left join payouts pp

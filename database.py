@@ -540,7 +540,7 @@ def execute_sql(sql):
         conn.close()
 
 
-def execute_update_points_script(league_id, script_path='sql/merge_into_final_scores.sql'):
+def execute_update_points_script(league_id, script_path='sql/drop_create_final_scores.sql'):
     """Execute the final scores merge SQL script for a specific league."""
     conn = connect_to_postgresql()
     if conn is None:
