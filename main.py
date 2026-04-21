@@ -17,7 +17,7 @@ from logger import setup_logging
 logger = setup_logging()
 VIEWS_SQL_PATH = 'sql/create_views.sql'
 HANDICAPS_SQL_PATH = 'sql/drop_create_handicaps_table.sql'
-FINAL_SCORES_SQL_PATH = 'sql/merge_into_final_scores.sql'
+FINAL_SCORES_SQL_PATH = 'sql/drop_create_final_scores.sql'
 
 
 def main():
@@ -104,19 +104,19 @@ def main():
 
         logger.info('Finished importing files.')
 
-        # Run in dependency order: handicaps first, then final scores (which joins
-        # handicaps), then views (which select from final_scores).
-        for label, path in [
-            ('handicap', HANDICAPS_SQL_PATH),
-            ('final scores', FINAL_SCORES_SQL_PATH),
-            ('views', VIEWS_SQL_PATH),
-        ]:
-            try:
-                logger.info(f"Running {label} script: {path}")
-                database.execute_sql_script(path)
-                logger.info(f"Finished {label} update.")
-            except Exception as error:
-                logger.error(f"Failed running {label} script ({path}): {error}")
+    # Run in dependency order: handicaps first, then final scores (which joins
+    # handicaps), then views (which select from final_scores).
+    for label, path in [
+        ('handicap', HANDICAPS_SQL_PATH),
+        ('final scores', FINAL_SCORES_SQL_PATH),
+        ('views', VIEWS_SQL_PATH),
+    ]:
+        try:
+            logger.info(f"Running {label} script: {path}")
+            database.execute_sql_script(path)
+            logger.info(f"Finished {label} update.")
+        except Exception as error:
+            logger.error(f"Failed running {label} script ({path}): {error}")
 
 
 if __name__ == "__main__":
