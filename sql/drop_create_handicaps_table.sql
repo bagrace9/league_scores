@@ -11,7 +11,7 @@
 --      configured lookback period are excluded entirely.
 -- =============================================================================
 
-Drop TABLE if exists handicaps
+Drop TABLE if exists handicaps cascade
 ;
 
 
@@ -51,8 +51,8 @@ SELECT
     , rs1.event_end_date
     , rs1.raw_score
     , case when count(*) < rs1.handicap_minimum_rounds
-           then ROUND((AVG(rs2.raw_score) - rs1.handicap_base_score) * rs1.handicap_multiplier, 0) 
-           else 0 
+           then 0
+           else ROUND((AVG(rs2.raw_score) - rs1.handicap_base_score) * rs1.handicap_multiplier, 0) 
            end AS next_handicap
     , STRING_AGG(rs2.raw_score::text, ',' order by rs2.rn) AS next_handicap_scores
     , COUNT(*) AS lookback_count
