@@ -15,7 +15,8 @@ create table if not exists final_scores as
 
 with scores_with_ranks as (
     SELECT
-          rs.event_id
+          rs.raw_score_id
+        , rs.event_id
         , e.event_name
         , rs.league_id
         , l.league_name
@@ -31,10 +32,12 @@ with scores_with_ranks as (
         , h.next_handicap_scores
         , COALESCE(rs.raw_score - h.handicap, rs.raw_score) AS adjusted_score
         -- place: 1 = lowest adjusted score (best finish)
-        , rank() OVER (PARTITION BY rs.league_id, rs.division, e.event_end_date ORDER BY COALESCE(rs.raw_score - h.handicap, rs.raw_score)) AS place
+        , rank() OVER (PARTITION BY rs.league_id, rs.division, e.event_id ORDER BY COALESCE(rs.raw_score - h.handicap, rs.raw_score)) AS place
+        -- tie_count: number of players sharing the same adjusted score in the event/division.
+        , count(*) OVER (PARTITION BY rs.league_id, rs.division, e.event_id, COALESCE(rs.raw_score - h.handicap, rs.raw_score)) AS tie_count
         -- points: descending rank so the winner earns the highest point value (equal to field size)
-        , rank() OVER (PARTITION BY rs.league_id, rs.division, e.event_end_date ORDER BY COALESCE(rs.raw_score - h.handicap, rs.raw_score) DESC) AS points
-        , count(*) OVER (PARTITION BY rs.league_id, rs.division, e.event_end_date) AS num_players
+        , rank() OVER (PARTITION BY rs.league_id, rs.division, e.event_id ORDER BY COALESCE(rs.raw_score - h.handicap, rs.raw_score) DESC) AS points
+        , count(*) OVER (PARTITION BY rs.league_id, rs.division, e.event_id) AS num_players
 
     
     FROM raw_scores rs
@@ -50,6 +53,21 @@ with scores_with_ranks as (
 
     WHERE e.is_excluded = false
 )
+
+,payouts_with_ties as (
+select
+          swr.raw_score_id
+        , COALESCE(SUM(pp.percentage), 0) / swr.tie_count AS split_percentage
+    FROM scores_with_ranks swr
+    LEFT JOIN payouts pp
+        ON pp.n_players = swr.num_players
+       AND pp.position BETWEEN swr.place AND (swr.place + swr.tie_count - 1)
+    GROUP BY
+          swr.raw_score_id
+        , swr.tie_count
+
+)
+
 
 SELECT
           swr.event_id
@@ -69,18 +87,19 @@ SELECT
         , swr.adjusted_score
         , swr.place
         , swr.points
-        -- payout = total pot after league cut * pre-computed position percentage.
+        -- payout = total pot after league cut * tie-adjusted split percentage.
+        -- Tied players share the combined payout pool for their place plus
+        -- the following places equal to the number of tied players, split evenly.
         -- Only populated for events from 2016 onward (start of consistent data).
         , case when swr.year >= 2016
-               then round((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pp.percentage, 0)
+               then round((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
                else null
                end AS payout
         
 
 FROM scores_with_ranks swr
-left join payouts pp
-       on pp.n_players = swr.num_players
-      and pp.position = swr.place
+left join payouts_with_ties pwt
+       on pwt.raw_score_id = swr.raw_score_id
 join leagues l
     on l.league_id = swr.league_id
 
