@@ -2,5 +2,6 @@ Flask
 requests
 bs4
 pandas
-psycopg2
 openpyxl
+google-cloud-bigquery
+google-cloud-storage

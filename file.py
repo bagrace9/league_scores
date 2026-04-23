@@ -10,6 +10,8 @@ import shutil
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+from google.cloud import storage
+
 
 class File:
     """Class representing a downloaded event data file."""
@@ -115,6 +117,49 @@ class File:
             self.filename = moved_path.name
             return True
         except OSError:
+            return False
+
+    def upload_to_gcs(self, bucket_name: str, destination_prefix: str = '') -> bool:
+        """Upload this file to GCS, update file metadata, and delete local copy."""
+        try:
+            source = Path(self.filepath)
+            if not source.exists():
+                self.error = f"Source file not found: {self.filepath}"
+                return False
+
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+
+            clean_prefix = destination_prefix.strip('/')
+            blob_name = f"{clean_prefix}/{source.name}" if clean_prefix else source.name
+            blob = bucket.blob(blob_name)
+
+            if blob.exists(client):
+                stem = source.stem
+                suffix = source.suffix
+                counter = 1
+                while True:
+                    candidate_name = (
+                        f"{clean_prefix}/{stem}_{counter}{suffix}"
+                        if clean_prefix
+                        else f"{stem}_{counter}{suffix}"
+                    )
+                    candidate_blob = bucket.blob(candidate_name)
+                    if not candidate_blob.exists(client):
+                        blob_name = candidate_name
+                        blob = candidate_blob
+                        break
+                    counter += 1
+
+            blob.upload_from_filename(str(source))
+            source.unlink()
+
+            self.filepath = f"gs://{bucket_name}/{blob_name}"
+            self.filename = Path(blob_name).name
+            self.error = None
+            return True
+        except Exception as error:
+            self.error = str(error)
             return False
 
     def __str__(self):
