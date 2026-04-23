@@ -580,12 +580,15 @@ def create_payout_table():
 
 def payouts_table_exists():
     """Return True when the payouts table already exists in the configured dataset."""
+    cfg = get_bigquery_config()
     dataset_ref = _bq_dataset_ref()
+    dataset_name = cfg['dataset']
     rows = _run_bigquery_sql(
         f"""
         SELECT COUNT(1) AS table_count
         FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
-        WHERE table_name = 'payouts'
+        WHERE table_schema = '{dataset_name}'
+          AND table_name = 'payouts'
         """
     )
     return bool(rows and rows[0]['table_count'] > 0)
