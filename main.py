@@ -11,18 +11,41 @@ import scrape_udisc
 import database
 from datetime import date
 from pathlib import Path
+import tempfile
+from config import get_storage_config
 from file import File
-from logger import setup_logging
+from logger import setup_logging, upload_log_to_gcs
 
 logger = setup_logging()
-VIEWS_SQL_PATH = 'sql/create_views.sql'
-HANDICAPS_SQL_PATH = 'sql/drop_create_handicaps_table.sql'
-FINAL_SCORES_SQL_PATH = 'sql/drop_create_final_scores.sql'
+VIEWS_SQL_PATH = 'sql/bigquery/create_views.sql'
+HANDICAPS_SQL_PATH = 'sql/bigquery/drop_create_handicaps_table.sql'
+FINAL_SCORES_SQL_PATH = 'sql/bigquery/drop_create_final_scores.sql'
+CREATE_TABLES_SQL_PATH = 'sql/bigquery/create_perm_tables.sql'
+
+
+def maybe_upload_log_to_gcs():
+    """Upload run log to GCS when enabled by configuration."""
+    storage_config = get_storage_config()
+    upload_log = storage_config.get('upload_log_to_gcs', False)
+    if not upload_log:
+        return
+
+    bucket = storage_config.get('bucket')
+    if not bucket:
+        logger.warning('UPLOAD_LOG_TO_GCS is enabled but GCS_BUCKET is not set. Skipping log upload.')
+        return
+
+    configured_prefix = (storage_config.get('log_prefix') or storage_config.get('prefix') or '').strip('/')
+    try:
+        uri = upload_log_to_gcs(logger, bucket, configured_prefix)
+        logger.info(f'Uploaded run log to {uri}')
+    except Exception as error:
+        logger.warning(f'Failed to upload run log to GCS: {error}')
 
 
 def main():
     
-    database.run_create_script()
+    database.run_create_script(CREATE_TABLES_SQL_PATH)
     if not database.payouts_table_exists():
         logger.info('Payouts table missing. Creating payouts table.')
         database.create_payout_table()
@@ -32,7 +55,24 @@ def main():
     # Track already downloaded events so we only download new files.
     imported_urls = database.fetch_imported_event_urls()
     downloaded_files = []
+    storage_config = get_storage_config()
+    archive_files = storage_config.get('archive_files', True)
+    archive_bucket = storage_config.get('bucket')
+    archive_prefix = (storage_config.get('prefix') or '').strip('/')
+    archive_subdir = f"{archive_prefix}/Imported" if archive_prefix else 'Imported'
     imported_dir = Path(__file__).parent / 'exports' / 'Imported'
+    download_dir = Path(__file__).parent / 'exports'
+
+    if archive_bucket and archive_files:
+        download_dir = Path(tempfile.gettempdir()) / 'league_scores' / (archive_prefix or 'default')
+
+    if not archive_files:
+        logger.info('File archive disabled: imported files will be deleted after import.')
+    elif archive_bucket:
+        logger.info(f"Archive target configured: gs://{archive_bucket}/{archive_subdir}")
+        logger.info(f"Using temporary download directory: {download_dir}")
+    else:
+        logger.info(f"Archive target configured: local path {imported_dir}")
 
     league_rows = database.fetch_leagues()
     league_ids = [league_id for (league_id,) in league_rows]
@@ -48,7 +88,7 @@ def main():
                         logger.info(f"Already imported event, skipping download: {export_url}")
                         continue
                     elif export_url.endswith('leaderboard/export'):
-                        result = scrape_udisc.download_event_data(export_url)
+                        result = scrape_udisc.download_event_data(export_url, download_dir=str(download_dir))
                         if result['success']:
                             downloaded_file = File.from_download_result(result)
 
@@ -87,20 +127,62 @@ def main():
                     f"Imported file into events/raw_scores/hole_scores (event_id={event_id}): {downloaded_file.filename}"
                 )
 
-                moved = downloaded_file.move_to_directory(imported_dir)
-                if moved:
+                if not archive_files:
                     database.update_event_file_metadata(
                         event_id,
                         downloaded_file.filename,
-                        downloaded_file.filepath,
+                        None,
                     )
-                    logger.info(f"Moved imported file to {downloaded_file.filepath}")
+                    deleted = downloaded_file.delete_from_disk()
+                    if deleted:
+                        logger.info(f"Deleted imported file from local disk: {downloaded_file.filepath}")
+                    else:
+                        logger.warning(f"Could not delete imported file from local disk: {downloaded_file.filepath}")
+                elif archive_bucket:
+                    archived = downloaded_file.upload_to_gcs(archive_bucket, archive_subdir)
+                    if archived:
+                        database.update_event_file_metadata(
+                            event_id,
+                            downloaded_file.filename,
+                            downloaded_file.filepath,
+                        )
+                        logger.info(f"Archived imported file to {downloaded_file.filepath}")
+                    else:
+                        logger.warning(
+                            f"Could not archive imported file to GCS: {downloaded_file.filename}; error={downloaded_file.error}"
+                        )
+                        deleted = downloaded_file.delete_from_disk()
+                        if deleted:
+                            logger.info(
+                                f"Deleted temporary local file after GCS archive failure: {downloaded_file.filepath}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Could not delete temporary local file after GCS archive failure: {downloaded_file.filepath}"
+                            )
                 else:
-                    logger.warning(f"Could not move imported file: {downloaded_file.filename}")
+                    moved = downloaded_file.move_to_directory(imported_dir)
+                    if moved:
+                        database.update_event_file_metadata(
+                            event_id,
+                            downloaded_file.filename,
+                            downloaded_file.filepath,
+                        )
+                        logger.info(f"Moved imported file to {downloaded_file.filepath}")
+                    else:
+                        logger.warning(f"Could not move imported file: {downloaded_file.filename}")
             except Exception as error:
                 logger.error(
                     f"Failed to import file {downloaded_file.filename}: {error}"
                 )
+                if archive_bucket or not archive_files:
+                    deleted = downloaded_file.delete_from_disk()
+                    if deleted:
+                        logger.info(f"Deleted local file after import failure: {downloaded_file.filepath}")
+                    else:
+                        logger.warning(
+                            f"Could not delete local file after import failure: {downloaded_file.filepath}"
+                        )
 
         logger.info('Finished importing files.')
 
@@ -120,4 +202,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        maybe_upload_log_to_gcs()

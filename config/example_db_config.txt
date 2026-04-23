@@ -1,6 +1,10 @@
-# Database configuration for PostgreSQL connection
-DB_HOST=your_postgresql_host
-DB_PORT=your_port
-DB_NAME=your_database_name
-DB_USER=your_username
-DB_PASSWORD=your_password
+# BigQuery settings
+GCP_PROJECT_ID=your_gcp_project_id
+BIGQUERY_DATASET=league_scores
+BIGQUERY_LOCATION=US
+GOOGLE_APPLICATION_CREDENTIALS=your_google_application_credentials
+ARCHIVE_IMPORTED_FILES=true
+GCS_BUCKET=league_scores
+GCS_PREFIX=dev
+UPLOAD_LOG_TO_GCS=true
+LOG_GCS_PREFIX=dev

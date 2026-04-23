@@ -76,15 +76,17 @@ def find_download_links_on_page(page_url):
     return links
 
 
-def download_event_data(export_url):
+def download_event_data(export_url, download_dir=None):
     """Download Excel file from the event's leaderboard export URL."""
     try:
         # Download the Excel file
         response = requests.get(export_url)
         response.raise_for_status()
-        
-        # Create exports directory if it doesn't exist
-        os.makedirs(EXPORTS_DIR, exist_ok=True)
+
+        target_dir = download_dir or EXPORTS_DIR
+
+        # Create export directory if it doesn't exist
+        os.makedirs(target_dir, exist_ok=True)
         
         # Get default filename from response header or use fallback
         content_disposition = response.headers.get('Content-Disposition', '')
@@ -97,7 +99,7 @@ def download_event_data(export_url):
         # Add timestamp to filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{base_name}_{timestamp}.xlsx"
-        filepath = os.path.join(EXPORTS_DIR, filename)
+        filepath = os.path.join(target_dir, filename)
         
         # Save the file
         with open(filepath, 'wb') as f:
