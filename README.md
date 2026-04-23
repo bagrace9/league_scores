@@ -1,6 +1,6 @@
 # League Scores Pipeline
 
-Automated Python + PostgreSQL pipeline for collecting league event data from UDisc exports, importing raw scoring data, calculating handicaps and payouts, and producing query-ready season standings views.
+Automated Python + BigQuery pipeline for collecting league event data from UDisc exports, importing raw scoring data, calculating handicaps and payouts, and producing query-ready season standings views.
 
 This project is designed as a practical, production-style ETL workflow with idempotent imports, SQL-driven scoring logic, and deployment-ready scheduling.
 
@@ -9,7 +9,7 @@ This project is designed as a practical, production-style ETL workflow with idem
 I built this for the leagues I play in so I could automate weekly standings, payouts, and handicap updates without manual spreadsheet work:
 
 - Python application orchestration
-- PostgreSQL schema design and transformation SQL
+- SQL schema design and transformation logic
 - Idempotent data ingestion patterns
 - Operational concerns (logging, scheduling, deployment)
 
@@ -27,10 +27,10 @@ I built this for the leagues I play in so I could automate weekly standings, pay
 ## Tech Stack
 
 - Python 3
-- PostgreSQL
+- BigQuery
 - pandas + openpyxl for spreadsheet parsing
 - requests + BeautifulSoup for scraping
-- psycopg2 for DB access
+- google-cloud-bigquery for BigQuery access
 
 ## Project Structure
 
@@ -62,11 +62,9 @@ The app supports **environment variables first**, with fallback to a local confi
 
 Required settings:
 
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
+- `GCP_PROJECT_ID`
+- `BIGQUERY_DATASET`
+- `BIGQUERY_LOCATION` (optional, defaults to `US`)
 
 ### Option 1: Environment Variables (recommended)
 

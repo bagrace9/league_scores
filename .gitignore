@@ -17,5 +17,6 @@ dist/
 build/
 
 config/db_config.txt
+.env
 
 .vscode/
