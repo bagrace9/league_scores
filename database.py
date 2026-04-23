@@ -59,7 +59,7 @@ def _run_bigquery_sql(sql, query_parameters=None):
 
 
 def _format_sql_for_backend(sql_text):
-    return sql_text.replace('league_scores.', f"{_bq_dataset_ref()}.")
+    return sql_text.replace('{dataset_name}', _bq_dataset_ref())
 
 
 def _execute_script(script_path):
