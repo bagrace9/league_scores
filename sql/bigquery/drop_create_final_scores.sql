@@ -76,6 +76,7 @@ SELECT
     , swr.place
     , swr.points
     , sum(points) over (partition by swr.league_id, swr.division, swr.event_id, swr.player_username order by swr.event_end_date) as season_points_as_of_event
+    , sum(points) over (partition by swr.league_id, swr.division, swr.player_username) as total_season_points
     , CASE
         WHEN swr.year >= 2016 THEN ROUND((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
         ELSE NULL
