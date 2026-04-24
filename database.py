@@ -548,8 +548,8 @@ def create_payout_table():
                 {
                     'n_players': n_players,
                     'position': position,
-                    'weight': round(weight, 12),
-                    'percentage': round(payout_fraction, 12),
+                    'weight': round(weight, 9),
+                    'percentage': round(payout_fraction, 9),
                     'payout_percent': round(payout_fraction * 100, 4),
                 }
             )
@@ -583,12 +583,13 @@ def payouts_table_exists():
     cfg = get_bigquery_config()
     dataset_ref = _bq_dataset_ref()
     dataset_name = cfg['dataset']
-    rows = _run_bigquery_sql(
-        f"""
+    
+    sql =  f"""
         SELECT COUNT(1) AS table_count
         FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
-        WHERE table_schema = '{dataset_name}'
-          AND table_name = 'payouts'
+        WHERE table_name = 'payouts'
         """
-    )
+    rows = _run_bigquery_sql(sql)
+    
     return bool(rows and rows[0]['table_count'] > 0)
+
