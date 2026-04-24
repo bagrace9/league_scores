@@ -3,9 +3,9 @@
 -- Rebuilds final_scores from raw scores and handicaps each run.
 -- =============================================================================
 
-DROP TABLE IF EXISTS final_scores;
+--DROP TABLE IF EXISTS final_scores;
 
-CREATE TABLE final_scores AS
+--CREATE TABLE final_scores AS
 WITH scores_with_ranks AS (
     SELECT
           rs.raw_score_id
@@ -75,8 +75,8 @@ SELECT
     , swr.adjusted_score
     , swr.place
     , swr.points
-    , sum(points) over (partition by swr.league_id, swr.division, swr.player_username order by swr.end_date) as season_points_as_of_event
-    , sum(points) over (partition by swr.league_id, swr.division, swr.player_username) as total_season_points
+    , sum(points) over (partition by swr.league_id, swr.division, swr.year, swr.player_username order by swr.end_date) as season_points_as_of_event
+    , sum(points) over (partition by swr.league_id, swr.division, swr.year, swr.player_username) as total_season_points
     , CASE
         WHEN swr.year >= 2016 THEN ROUND((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
         ELSE NULL
