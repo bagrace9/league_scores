@@ -3,9 +3,9 @@
 -- Rebuilds final_scores from raw scores and handicaps each run.
 -- =============================================================================
 
---DROP TABLE IF EXISTS final_scores;
+DROP TABLE IF EXISTS final_scores;
 
---CREATE TABLE final_scores AS
+CREATE TABLE final_scores AS
 WITH scores_with_ranks AS (
     SELECT
           rs.raw_score_id
