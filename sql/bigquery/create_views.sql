@@ -20,6 +20,7 @@ SELECT
     , place
     , points
     , payout
+    , season_points_as_of_event
 FROM {dataset_name}.final_scores
 WHERE year = EXTRACT(YEAR FROM CURRENT_DATE());
 
