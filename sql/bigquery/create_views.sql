@@ -20,6 +20,7 @@ SELECT
     , place
     , points
     , payout
+    , season_points_as_of_event
 FROM {dataset_name}.final_scores
 WHERE year = EXTRACT(YEAR FROM CURRENT_DATE());
 
@@ -33,6 +34,7 @@ SELECT
     , AVG(fs.raw_score) AS average_raw_score
     , ARRAY_AGG(next_handicap ORDER BY end_date DESC, event_id DESC LIMIT 1)[OFFSET(0)] AS current_handicap
     , ARRAY_AGG(next_handicap_scores ORDER BY end_date DESC, event_id DESC LIMIT 1)[OFFSET(0)] AS handicap_scores
+    , sum(payout) AS total_payout
 FROM {dataset_name}.final_scores fs
 WHERE year = EXTRACT(YEAR FROM CURRENT_DATE())
 GROUP BY
