@@ -21,6 +21,7 @@ SELECT
     , points
     , payout
     , season_points_as_of_event
+    , total_season_points
 FROM {dataset_name}.final_scores
 WHERE year = EXTRACT(YEAR FROM CURRENT_DATE());
 
