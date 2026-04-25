@@ -15,11 +15,11 @@ SELECT
     , player_name
     , player_username
     , raw_score
-    , handicap
+    , IFNULL(handicap, 0) AS handicap
     , adjusted_score
     , place
     , points
-    , payout
+    , IFNULL(payout, 0) AS payout
     , season_points_as_of_event
     , total_season_points
 FROM {dataset_name}.final_scores
@@ -33,9 +33,9 @@ SELECT
     , division
     , SUM(points) AS total_points
     , AVG(fs.raw_score) AS average_raw_score
-    , ARRAY_AGG(next_handicap ORDER BY end_date DESC, event_id DESC LIMIT 1)[OFFSET(0)] AS current_handicap
-    , ARRAY_AGG(next_handicap_scores ORDER BY end_date DESC, event_id DESC LIMIT 1)[OFFSET(0)] AS handicap_scores
-    , sum(payout) AS total_payout
+    , IFNULL(ARRAY_AGG(next_handicap ORDER BY end_date DESC, event_id DESC LIMIT 1)[OFFSET(0)], 0) AS current_handicap
+    , IFNULL(ARRAY_AGG(next_handicap_scores ORDER BY end_date DESC, event_id DESC LIMIT 1)[OFFSET(0)], '') AS handicap_scores
+    , IFNULL(SUM(payout), 0) AS total_payout
 FROM {dataset_name}.final_scores fs
 WHERE year = EXTRACT(YEAR FROM CURRENT_DATE())
 GROUP BY

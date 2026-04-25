@@ -1,20 +1,16 @@
 -- =============================================================================
--- BigQuery drop_create_final_scores.sql
+-- BigQuery create_final_scores.sql
 -- Rebuilds final_scores from raw scores and handicaps each run.
 -- =============================================================================
 
-DROP TABLE IF EXISTS final_scores;
 
-CREATE TABLE final_scores AS
+--CREATE or replace TABLE final_scores AS
 WITH scores_with_ranks AS (
     SELECT
           rs.raw_score_id
         , rs.event_id
-        , e.event_name
         , rs.league_id
-        , l.league_name
         , e.event_end_date AS end_date
-        , EXTRACT(YEAR FROM e.event_end_date) AS year
         , rs.division
         , rs.player_name
         , rs.player_username
@@ -39,8 +35,6 @@ WITH scores_with_ranks AS (
     FROM raw_scores rs
     JOIN events e
         ON e.event_id = rs.event_id
-    JOIN leagues l
-        ON l.league_id = rs.league_id
     LEFT JOIN handicaps h
         ON rs.raw_score_id = h.raw_score_id
     WHERE e.is_excluded = FALSE
