@@ -18,9 +18,12 @@ from logger import setup_logging, upload_log_to_gcs
 
 logger = setup_logging()
 VIEWS_SQL_PATH = 'sql/bigquery/create_views.sql'
-HANDICAPS_SQL_PATH = 'sql/bigquery/drop_create_handicaps_table.sql'
-FINAL_SCORES_SQL_PATH = 'sql/bigquery/drop_create_final_scores.sql'
+HANDICAPS_SQL_PATH = 'sql/bigquery/create_handicaps_table.sql'
+ADJUSTED_SCORES_SQL_PATH = 'sql/bigquery/create_adjusted_scores.sql'
 CREATE_TABLES_SQL_PATH = 'sql/bigquery/create_perm_tables.sql'
+PLAYERS_SQL_PATH = 'sql/bigquery/create_season_players_summary_table.sql'
+SEASON_LOG_SQL_PATH = 'sql/bigquery/create_season_log_table.sql'
+SEASON_EVENT_SUMMARY_SQL_PATH = 'sql/bigquery/create_season_event_summary_table.sql'
 
 
 def maybe_upload_log_to_gcs():
@@ -45,7 +48,7 @@ def maybe_upload_log_to_gcs():
 
 def main():
     
-    database.run_create_script(CREATE_TABLES_SQL_PATH)
+    database.execute_sql_script(CREATE_TABLES_SQL_PATH)
     if not database.payouts_table_exists():
         logger.info('Payouts table missing. Creating payouts table.')
         database.create_payout_table()
@@ -186,12 +189,14 @@ def main():
 
         logger.info('Finished importing files.')
 
-    # Run in dependency order: handicaps first, then final scores (which joins
-    # handicaps), then views (which select from final_scores).
+    # Run in dependency order.
     for label, path in [
         ('handicap', HANDICAPS_SQL_PATH),
-        ('final scores', FINAL_SCORES_SQL_PATH),
-        ('views', VIEWS_SQL_PATH),
+        ('adjusted scores', ADJUSTED_SCORES_SQL_PATH),
+        ('season event summary', SEASON_EVENT_SUMMARY_SQL_PATH),
+        ('players', PLAYERS_SQL_PATH),
+        ('season log', SEASON_LOG_SQL_PATH),
+        #('views', VIEWS_SQL_PATH),
     ]:
         try:
             logger.info(f"Running {label} script: {path}")

@@ -58,20 +58,15 @@ def _run_bigquery_sql(sql, query_parameters=None):
     return list(client.query(sql, job_config=job_config).result())
 
 
-def _format_sql_for_backend(sql_text):
+def _substitute_dataset(sql_text):
     return sql_text.replace('{dataset_name}', _bq_dataset_ref())
 
 
 def _execute_script(script_path):
     """Read and execute a SQL script file."""
     with open(script_path, 'r', encoding='utf-8') as sql_file:
-        script = _format_sql_for_backend(sql_file.read())
+        script = _substitute_dataset(sql_file.read())
     _run_bigquery_sql(script)
-
-
-def run_create_script(script_path='sql/bigquery/create_perm_tables.sql'):
-    """Run the SQL script to create necessary database objects."""
-    _execute_script(script_path)
 
 
 def create_league(
@@ -211,15 +206,6 @@ def fetch_imported_event_urls(league_id=None):
             f"SELECT export_url FROM {_bq_table('events')} WHERE is_imported = TRUE"
         )
     return {row['export_url'] for row in rows}
-
-
-def fetch_event_by_url(export_url):
-    """Fetch a single event record by its export URL."""
-    rows = _run_bigquery_sql(
-        f"SELECT * FROM {_bq_table('events')} WHERE export_url = @export_url LIMIT 1",
-        [bigquery.ScalarQueryParameter('export_url', 'STRING', export_url)],
-    )
-    return dict(rows[0].items()) if rows else None
 
 
 def _derive_event_name_from_filename(filename):
@@ -374,71 +360,6 @@ def import_downloaded_file(league_id, downloaded_file):
     return event_id
 
 
-def insert_event_record(
-        league_id,
-        event_name,
-        export_url,
-        event_end_date=None,
-        num_players=None,
-        is_imported=False,
-):
-    """Insert an event record to the database."""
-    event_id = str(uuid.uuid4())
-    _run_bigquery_sql(
-        f"""
-        INSERT INTO {_bq_table('events')} (
-            event_id,
-            league_id,
-            event_name,
-            export_url,
-            event_end_date,
-            num_players,
-            is_imported,
-            create_time,
-            update_time
-        )
-        VALUES (
-            @event_id,
-            @league_id,
-            @event_name,
-            @export_url,
-            @event_end_date,
-            @num_players,
-            @is_imported,
-            CURRENT_TIMESTAMP(),
-            CURRENT_TIMESTAMP()
-        )
-        """,
-        [
-            bigquery.ScalarQueryParameter('event_id', 'STRING', event_id),
-            bigquery.ScalarQueryParameter('league_id', 'STRING', str(league_id)),
-            bigquery.ScalarQueryParameter('event_name', 'STRING', event_name),
-            bigquery.ScalarQueryParameter('export_url', 'STRING', export_url),
-            bigquery.ScalarQueryParameter(
-                'event_end_date',
-                'DATE',
-                event_end_date.isoformat() if event_end_date else None,
-            ),
-            bigquery.ScalarQueryParameter('num_players', 'INT64', num_players),
-            bigquery.ScalarQueryParameter('is_imported', 'BOOL', bool(is_imported)),
-        ],
-    )
-    return event_id
-
-
-def mark_event_imported_by_url(export_url):
-    """Mark an existing event record as imported by export URL."""
-    _run_bigquery_sql(
-        f"""
-        UPDATE {_bq_table('events')}
-        SET is_imported = TRUE,
-            update_time = CURRENT_TIMESTAMP()
-        WHERE export_url = @export_url
-        """,
-        [bigquery.ScalarQueryParameter('export_url', 'STRING', export_url)],
-    )
-
-
 def update_event_file_metadata(event_id, file_name, file_path):
     """Update file metadata for an event after moving the imported file."""
     _run_bigquery_sql(
@@ -460,18 +381,6 @@ def update_event_file_metadata(event_id, file_name, file_path):
 def execute_sql_script(script_path):
     """Execute a given SQL script."""
     _execute_script(script_path)
-
-
-def execute_sql(sql):
-    """Execute a given SQL statement."""
-    _run_bigquery_sql(_format_sql_for_backend(sql))
-
-
-def execute_update_points_script(league_id, script_path='sql/bigquery/drop_create_final_scores.sql'):
-    """Execute the final scores SQL script for a specific league."""
-    with open(script_path, 'r', encoding='utf-8') as sql_file:
-        script = sql_file.read().replace("{league_id}", str(league_id))
-    _run_bigquery_sql(_format_sql_for_backend(script))
 
 
 def fetch_league_urls(league_id):

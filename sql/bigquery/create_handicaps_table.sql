@@ -1,11 +1,10 @@
 -- =============================================================================
--- BigQuery drop_create_handicaps_table.sql
+-- BigQuery create_handicaps_table.sql
 -- Rebuilds the handicaps table from scratch each run.
 -- =============================================================================
 
-DROP TABLE IF EXISTS handicaps;
 
-CREATE TABLE handicaps AS
+CREATE or replace TABLE handicaps AS
 WITH ranked_scores AS (
     SELECT
           l.league_id
