@@ -62,13 +62,6 @@ def _substitute_dataset(sql_text):
     return sql_text.replace('{dataset_name}', _bq_dataset_ref())
 
 
-def _execute_script(script_path):
-    """Read and execute a SQL script file."""
-    with open(script_path, 'r', encoding='utf-8') as sql_file:
-        script = _substitute_dataset(sql_file.read())
-    _run_bigquery_sql(script)
-
-
 def create_league(
         league_name,
         league_urls,
@@ -381,8 +374,10 @@ def update_event_file_metadata(event_id, file_name, file_path):
 
 
 def execute_sql_script(script_path):
-    """Execute a given SQL script."""
-    _execute_script(script_path)
+    """Read and execute a SQL script file."""
+    with open(script_path, 'r', encoding='utf-8') as sql_file:
+        script = _substitute_dataset(sql_file.read())
+    _run_bigquery_sql(script)
 
 
 def fetch_league_urls(league_id):
@@ -508,6 +503,10 @@ def apply_event_updates(gcs_uri=None):
         is_excluded_from_points   (optional bool) — true/false
         points_multiplier         (optional numeric)
     """
+    if not gcs_uri:
+        logger.debug('No event updates GCS URI provided; no event updates will be applied.')
+        return
+
     _run_bigquery_sql(
         f"""
         UPDATE {_bq_table('events')}
@@ -518,10 +517,6 @@ def apply_event_updates(gcs_uri=None):
         WHERE TRUE
         """
     )
-
-    if not gcs_uri:
-        logger.debug('No event updates GCS URI provided; no event updates will be applied.')
-        return
 
     from google.cloud import storage as gcs
     import io

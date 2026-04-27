@@ -11,14 +11,14 @@ from config import get_leagues_bootstrap_config_path
 
 logger = logging.getLogger(__name__)
 DEFAULTS = {
-    'league_cash_percentage': 0,
-    'league_entry_fee': 0,
+    'league_cash_percentage': 0.0,
+    'league_entry_fee': 0.0,
     'league_is_handicap': False,
     'handicap_minimum_rounds': 0,
     'handicap_rounds_considered': 0,
     'handicap_years_lookback': 0,
     'handicap_base_score': 0,
-    'handicap_multiplier': 0,
+    'handicap_multiplier': 0.0,
 }
 
 

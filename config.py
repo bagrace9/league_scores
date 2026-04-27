@@ -47,14 +47,23 @@ def _to_bool(value, default=True):
     return default
 
 
+_config_cache: dict | None = None
+
+
 def load_db_config(config_path=None):
     """Load settings from a config file (local or GCS) plus optional env var overrides.
+
+    Result is cached after the first call. Pass config_path only on the first call
+    (or to intentionally reload from a different source).
 
     Resolution order (highest priority last, so env vars win):
     1. GCS config file — if DB_CONFIG_GCS_URI env var is set, or config_path starts with gs://
     2. Local config file — config_path or the default config/db_config.txt
     3. Individual environment variables
     """
+    global _config_cache
+    if _config_cache is not None and config_path is None:
+        return _config_cache
     config = {}
 
     gcs_uri = os.getenv('DB_CONFIG_GCS_URI', '').strip()
@@ -82,6 +91,8 @@ def load_db_config(config_path=None):
             f"Missing required config values: {', '.join(missing)} (source: {source})"
         )
 
+    if config_path is None:
+        _config_cache = config
     return config
 
 

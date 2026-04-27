@@ -1,6 +1,6 @@
 -- =============================================================================
--- BigQuery create_final_scores.sql
--- Rebuilds final_scores from raw scores and handicaps each run.
+-- BigQuery create_adjusted_scores.sql
+-- Rebuilds adjusted_scores from raw scores and handicaps each run.
 -- =============================================================================
 
 

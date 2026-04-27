@@ -51,7 +51,11 @@ def get_event_links(url):
             if year_span is None:
                 continue
             link_year = year_span.text.strip()
-            if link.startswith('/events') and '/leaderboard' in link and int(link_year) >= lookback_year:
+            try:
+                year = int(link_year)
+            except ValueError:
+                continue
+            if link.startswith('/events') and '/leaderboard' in link and year >= lookback_year:
                 links.append('https://udisc.com' + link)
         page += 1
     return links
