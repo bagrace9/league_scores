@@ -10,8 +10,6 @@ import shutil
 from datetime import date, datetime
 from typing import Optional
 
-from google.cloud import storage
-
 
 class File:
     """Class representing a downloaded event data file."""
@@ -113,6 +111,8 @@ class File:
     def upload_to_gcs(self, bucket_name: str, destination_prefix: str = '') -> bool:
         """Upload this file to GCS, update file metadata, and delete local copy."""
         try:
+            from google.cloud import storage
+
             source = Path(self.filepath)
             if not source.exists():
                 self.error = f"Source file not found: {self.filepath}"
