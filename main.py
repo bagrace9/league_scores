@@ -14,57 +14,42 @@ from pathlib import Path
 import tempfile
 from config import get_storage_config
 from file import File
-from logger import setup_logging, upload_log_to_gcs
+from league_bootstrap import bootstrap_leagues_if_empty
+from logger import setup_logging
 
 logger = setup_logging()
-VIEWS_SQL_PATH = 'sql/bigquery/create_views.sql'
-HANDICAPS_SQL_PATH = 'sql/bigquery/drop_create_handicaps_table.sql'
-FINAL_SCORES_SQL_PATH = 'sql/bigquery/drop_create_final_scores.sql'
+HANDICAPS_SQL_PATH = 'sql/bigquery/create_handicaps_table.sql'
+ADJUSTED_SCORES_SQL_PATH = 'sql/bigquery/create_adjusted_scores.sql'
 CREATE_TABLES_SQL_PATH = 'sql/bigquery/create_perm_tables.sql'
-
-
-def maybe_upload_log_to_gcs():
-    """Upload run log to GCS when enabled by configuration."""
-    storage_config = get_storage_config()
-    upload_log = storage_config.get('upload_log_to_gcs', False)
-    if not upload_log:
-        return
-
-    bucket = storage_config.get('bucket')
-    if not bucket:
-        logger.warning('UPLOAD_LOG_TO_GCS is enabled but GCS_BUCKET is not set. Skipping log upload.')
-        return
-
-    configured_prefix = (storage_config.get('log_prefix') or storage_config.get('prefix') or '').strip('/')
-    try:
-        uri = upload_log_to_gcs(logger, bucket, configured_prefix)
-        logger.info(f'Uploaded run log to {uri}')
-    except Exception as error:
-        logger.warning(f'Failed to upload run log to GCS: {error}')
+PLAYERS_SQL_PATH = 'sql/bigquery/create_season_players_summary_table.sql'
+SEASON_LOG_SQL_PATH = 'sql/bigquery/create_season_log_table.sql'
+SEASON_EVENT_SUMMARY_SQL_PATH = 'sql/bigquery/create_season_event_summary_table.sql'
 
 
 def main():
     
-    database.run_create_script(CREATE_TABLES_SQL_PATH)
+    storage_config = get_storage_config()
+    event_updates_gcs_uri = (storage_config.get('event_updates_gcs_uri') or '').strip()
+
+    database.execute_sql_script(CREATE_TABLES_SQL_PATH)
     if not database.payouts_table_exists():
         logger.info('Payouts table missing. Creating payouts table.')
         database.create_payout_table()
     
+    
     logger.info('Starting league event download run')
 
-    # Track already downloaded events so we only download new files.
+    #Track already downloaded events so we only download new files.
     imported_urls = database.fetch_imported_event_urls()
     downloaded_files = []
-    storage_config = get_storage_config()
     archive_files = storage_config.get('archive_files', True)
     archive_bucket = storage_config.get('bucket')
-    archive_prefix = (storage_config.get('prefix') or '').strip('/')
-    archive_subdir = f"{archive_prefix}/Imported" if archive_prefix else 'Imported'
+    archive_subdir = 'imported_files'
     imported_dir = Path(__file__).parent / 'exports' / 'Imported'
     download_dir = Path(__file__).parent / 'exports'
 
     if archive_bucket and archive_files:
-        download_dir = Path(tempfile.gettempdir()) / 'league_scores' / (archive_prefix or 'default')
+        download_dir = Path(tempfile.gettempdir()) / 'league_scores'
 
     if not archive_files:
         logger.info('File archive disabled: imported files will be deleted after import.')
@@ -74,7 +59,7 @@ def main():
     else:
         logger.info(f"Archive target configured: local path {imported_dir}")
 
-    league_rows = database.fetch_leagues()
+    league_rows = bootstrap_leagues_if_empty()
     league_ids = [league_id for (league_id,) in league_rows]
 
     for league_id in league_ids:
@@ -82,7 +67,7 @@ def main():
         for league_url in league_urls:
             event_links = scrape_udisc.get_event_links(league_url)
             for event_link in event_links:
-                download_links = scrape_udisc.find_download_links_on_page(event_link)
+                download_links, event_end_date = scrape_udisc.find_download_links_on_page(event_link)
                 for export_url in download_links:
                     if export_url in imported_urls:
                         logger.info(f"Already imported event, skipping download: {export_url}")
@@ -90,6 +75,7 @@ def main():
                     elif export_url.endswith('leaderboard/export'):
                         result = scrape_udisc.download_event_data(export_url, download_dir=str(download_dir))
                         if result['success']:
+                            result['event_end_date'] = event_end_date
                             downloaded_file = File.from_download_result(result)
 
                             if (
@@ -185,13 +171,17 @@ def main():
                         )
 
         logger.info('Finished importing files.')
+    
+    
+    database.apply_event_updates(gcs_uri=event_updates_gcs_uri)
 
-    # Run in dependency order: handicaps first, then final scores (which joins
-    # handicaps), then views (which select from final_scores).
+    # Run in dependency order.
     for label, path in [
         ('handicap', HANDICAPS_SQL_PATH),
-        ('final scores', FINAL_SCORES_SQL_PATH),
-        ('views', VIEWS_SQL_PATH),
+        ('adjusted scores', ADJUSTED_SCORES_SQL_PATH),
+        ('season event summary', SEASON_EVENT_SUMMARY_SQL_PATH),
+        ('players', PLAYERS_SQL_PATH),
+        ('season log', SEASON_LOG_SQL_PATH),
     ]:
         try:
             logger.info(f"Running {label} script: {path}")
@@ -202,7 +192,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    finally:
-        maybe_upload_log_to_gcs()
+    main()

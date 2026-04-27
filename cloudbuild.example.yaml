@@ -5,14 +5,7 @@ steps:
     id: run-league-pipeline
     entrypoint: bash
     env:
-      - GCP_PROJECT_ID=${_GCP_PROJECT_ID}
-      - BIGQUERY_DATASET=${_BIGQUERY_DATASET}
-      - BIGQUERY_LOCATION=${_BIGQUERY_LOCATION}
-      - GCS_BUCKET=${_GCS_BUCKET}
-      - GCS_PREFIX=${_GCS_PREFIX}
-      - ARCHIVE_IMPORTED_FILES=${_ARCHIVE_IMPORTED_FILES}
-      - UPLOAD_LOG_TO_GCS=${_UPLOAD_LOG_TO_GCS}
-      - LOG_GCS_PREFIX=${_LOG_GCS_PREFIX}
+      - DB_CONFIG_GCS_URI=${_DB_CONFIG_GCS_URI}
       - PYTHONUNBUFFERED=1
     args:
       - -c
@@ -22,14 +15,7 @@ steps:
         python main.py
 
 substitutions:
-  _GCP_PROJECT_ID: your-gcp-project-id
-  _BIGQUERY_DATASET: your_bigquery_dataset
-  _BIGQUERY_LOCATION: your_bigquery_location
-  _GCS_BUCKET: your-gcs-bucket
-  _GCS_PREFIX: your_gcs_prefix
-  _ARCHIVE_IMPORTED_FILES: "true"
-  _UPLOAD_LOG_TO_GCS: "true"
-  _LOG_GCS_PREFIX: your_log_gcs_prefix
+  _DB_CONFIG_GCS_URI: gs://your-gcs-bucket/config/db_config.txt
 
 options:
   logging: CLOUD_LOGGING_ONLY
