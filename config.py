@@ -123,9 +123,14 @@ def get_storage_config(config_path=None):
 
 
 def get_leagues_bootstrap_config_path(config_path=None):
-    """Return the path to the optional leagues bootstrap JSON file."""
+    """Return the location of the optional leagues bootstrap JSON file."""
     config = load_db_config(config_path)
     path_value = (config.get('LEAGUES_BOOTSTRAP_PATH') or 'config/league_configs.json').strip()
+    if path_value.startswith('gs://'):
+        return path_value
+    bucket = config.get('GCS_BUCKET')
+    if bucket:
+        return f"gs://{bucket}/{path_value.strip('/')}"
     path = Path(path_value)
     if path.is_absolute():
         return path
