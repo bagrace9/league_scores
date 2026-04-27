@@ -34,6 +34,7 @@ def get_event_links(url):
     reprocessing old data.
     """
     links = []
+    seen = set()
     last_len = -1
     page = 1
     # Include prior year so late-season carryover events are not missed.
@@ -56,7 +57,10 @@ def get_event_links(url):
             except ValueError:
                 continue
             if link.startswith('/events') and '/leaderboard' in link and year >= lookback_year:
-                links.append('https://udisc.com' + link)
+                full_url = 'https://udisc.com' + link
+                if full_url not in seen:
+                    seen.add(full_url)
+                    links.append(full_url)
         page += 1
     return links
 

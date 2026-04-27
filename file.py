@@ -25,8 +25,6 @@ class File:
         error: Optional[str] = None,
         event_end_date: Optional[date] = None,
     ):
-        if event_end_date is None:
-            raise ValueError(f"event_end_date is required but was not provided for file: {filename}")
         self.export_url = export_url
         self.filename = filename
         self.filepath = filepath

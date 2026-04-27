@@ -19,18 +19,25 @@ from utils import format_league_urls, parse_league_urls
 
 logger = logging.getLogger(__name__)
 
+_bq_client_cache = None
+
 
 def _get_bigquery_client():
+    global _bq_client_cache
+    if _bq_client_cache is not None:
+        return _bq_client_cache
     cfg = get_bigquery_config()
     credentials_path = cfg.get('credentials_path')
     if credentials_path:
         credentials = service_account.Credentials.from_service_account_file(credentials_path)
-        return bigquery.Client(
+        _bq_client_cache = bigquery.Client(
             project=cfg['project_id'],
             location=cfg.get('location'),
             credentials=credentials,
         )
-    return bigquery.Client(project=cfg['project_id'], location=cfg.get('location'))
+    else:
+        _bq_client_cache = bigquery.Client(project=cfg['project_id'], location=cfg.get('location'))
+    return _bq_client_cache
 
 
 def _bq_dataset_ref():
@@ -288,7 +295,7 @@ def import_downloaded_file(league_id, downloaded_file):
         'file_path': downloaded_file.filepath,
         'num_players': num_players,
         'download_date': downloaded_file.download_date.isoformat() if downloaded_file.download_date else None,
-        'is_imported': True,
+        'is_imported': False,
         'is_excluded_from_handicap': False,
         'is_excluded_from_points': False,
         'points_multiplier': None,
@@ -351,6 +358,16 @@ def import_downloaded_file(league_id, downloaded_file):
         job.result()
         if job.errors:
             raise Exception(f"Failed to insert hole score rows: {job.errors}")
+
+    _run_bigquery_sql(
+        f"""
+        UPDATE {_bq_table('events')}
+        SET is_imported = TRUE,
+            update_time = CURRENT_TIMESTAMP()
+        WHERE event_id = @event_id
+        """,
+        [bigquery.ScalarQueryParameter('event_id', 'STRING', event_id)],
+    )
 
     return event_id
 
@@ -480,10 +497,8 @@ def create_payout_table():
 
 def payouts_table_exists():
     """Return True when the payouts table already exists in the configured dataset."""
-    cfg = get_bigquery_config()
     dataset_ref = _bq_dataset_ref()
-    dataset_name = cfg['dataset']
-    
+
     sql =  f"""
         SELECT COUNT(1) AS table_count
         FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
