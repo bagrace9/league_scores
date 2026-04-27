@@ -14,10 +14,10 @@ join adjusted_scores adj
 join leagues l
     on l.league_id = e.league_id
 
-where e.is_excluded = false
+where e.is_excluded_from_points = false
   and extract(year from e.event_end_date) = (select max(extract(year from event_end_date)) 
                                                from events
-                                               where is_excluded = false
+                                               where is_excluded_from_points = false
                                                )
     GROUP BY
         e.event_id

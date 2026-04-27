@@ -1,10 +1,9 @@
 # BigQuery settings
 GCP_PROJECT_ID=your_gcp_project_id
-BIGQUERY_DATASET=league_scores
+BIGQUERY_DATASET=dataset_name
 BIGQUERY_LOCATION=US
 GOOGLE_APPLICATION_CREDENTIALS=your_google_application_credentials
 ARCHIVE_IMPORTED_FILES=true
 GCS_BUCKET=league_scores
-GCS_PREFIX=dev
-UPLOAD_LOG_TO_GCS=true
-LOG_GCS_PREFIX=dev
+EVENT_UPDATES_PATH=config/event_updates.csv
+LEAGUES_BOOTSTRAP_PATH=config/league_configs.json

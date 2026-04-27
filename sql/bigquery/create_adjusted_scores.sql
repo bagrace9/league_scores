@@ -1,6 +1,6 @@
 -- =============================================================================
--- BigQuery create_final_scores.sql
--- Rebuilds final_scores from raw scores and handicaps each run.
+-- BigQuery create_adjusted_scores.sql
+-- Rebuilds adjusted_scores from raw scores and handicaps each run.
 -- =============================================================================
 
 
@@ -9,8 +9,6 @@ WITH scores_with_ranks AS (
     SELECT
           rs.raw_score_id
         , rs.event_id
-        , e.event_end_date 
-        , extract(year from e.event_end_date) as year
         , rs.league_id
         , rs.division
         , rs.player_name
@@ -31,18 +29,10 @@ WITH scores_with_ranks AS (
                           PARTITION BY rs.league_id, rs.division,rs.event_id, COALESCE(rs.raw_score - h.handicap, rs.raw_score)
                         ) AS tie_count
 
-        , RANK() OVER (
-                        PARTITION BY rs.league_id, rs.division, rs.event_id
-                        ORDER BY COALESCE(rs.raw_score - h.handicap, rs.raw_score) DESC
-                      ) AS points
-
         , COUNT(*) OVER (PARTITION BY rs.league_id, rs.division, rs.event_id) AS num_players
     FROM raw_scores rs
-    join events e 
-        on e.event_id = rs.event_id
     LEFT JOIN handicaps h
         ON rs.raw_score_id = h.raw_score_id
-    WHERE e.is_excluded = FALSE
 ),
 payouts_with_ties AS (
     SELECT
@@ -55,15 +45,15 @@ payouts_with_ties AS (
     GROUP BY
           swr.raw_score_id
         , swr.tie_count
-)
+),
 
-
+scores_with_payouts AS (
 SELECT
       swr.event_id
     , swr.league_id
     , l.league_name
-    , swr.event_end_date
-    , swr.year
+    , e.event_end_date
+    , extract(year from e.event_end_date) as year
     , swr.division
     , swr.player_name
     , swr.player_username
@@ -74,17 +64,34 @@ SELECT
     , swr.next_handicap_scores
     , swr.adjusted_score
     , swr.place
-    , swr.points
+    , case when e.is_excluded_from_points = true 
+           then 0
+           else swr.num_players - swr.place + 1
+      end as points
     , CASE
-        WHEN swr.year >= 2016 THEN ROUND((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
-        ELSE NULL
+        WHEN extract(year from e.event_end_date) >= 2016
+         AND e.is_excluded_from_points = false 
+        THEN ROUND((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
+        ELSE 0
       END AS payout
-    , sum(points) over (partition by swr.league_id, swr.division, swr.player_username , swr.year order by swr.event_end_date) as season_points_as_of_event
 
 FROM scores_with_ranks swr
+join events e
+    on e.event_id = swr.event_id
 LEFT JOIN payouts_with_ties pwt
     ON pwt.raw_score_id = swr.raw_score_id
 JOIN leagues l
     ON l.league_id = swr.league_id
 
+)
+
+
+
+SELECT
+    swp.*
+    ,sum(points) 
+           over (partition by swp.league_id, swp.division, swp.player_username , swp.year order by swp.event_end_date) as season_points_as_of_event
+    
+
+FROM scores_with_payouts swp
 ;

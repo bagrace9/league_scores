@@ -17,6 +17,8 @@ dist/
 build/
 
 config/db_config.txt
+config/event_updates.csv
+config/league_configs.json
 .env
 cloudbuild.yaml
 

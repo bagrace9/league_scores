@@ -46,8 +46,7 @@ create or replace table season_log as
       left join adjusted_scores adj 
                             on adj.event_id = e.event_id
                            and adj.player_username = sp.player_username
-    where e.is_excluded = false
-      and EXTRACT(year FROM e.event_end_date) = EXTRACT(year FROM CURRENT_DATE())
+    where EXTRACT(year FROM e.event_end_date) = EXTRACT(year FROM CURRENT_DATE())
 
 ; 
 

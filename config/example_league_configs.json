@@ -1,0 +1,16 @@
+[
+  {
+    "league_name": "example league",
+    "league_urls": [
+      "https://udisc.com/leagues/example-league-abc123"
+    ],
+    "league_entry_fee": 4,
+    "league_cash_percentage": 10,
+    "league_is_handicap": true,
+    "handicap_minimum_rounds": 3,
+    "handicap_rounds_considered": 3,
+    "handicap_years_lookback": 1,
+    "handicap_base_score": 49,
+    "handicap_multiplier": 0.8
+  }
+]

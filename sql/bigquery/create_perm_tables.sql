@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS `{dataset_name}.events` (
     download_date TIMESTAMP,
     is_imported BOOL,
     import_date TIMESTAMP,
-    is_excluded BOOL,
+    is_excluded_from_handicap BOOL,
+    is_excluded_from_points BOOL,
+    points_multiplier NUMERIC,
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
 );

@@ -26,7 +26,7 @@ WITH ranked_scores AS (
         ON e.event_id = rs.event_id
     JOIN leagues l
         ON l.league_id = rs.league_id
-    WHERE e.is_excluded = FALSE
+    WHERE e.is_excluded_from_handicap = FALSE
       AND l.league_is_handicap = TRUE
 ),
 next_handicaps AS (

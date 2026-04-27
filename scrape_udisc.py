@@ -6,7 +6,7 @@ and leaderboard export file downloads.
 """
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime
 from urllib.parse import urljoin
 
 import requests
@@ -21,7 +21,7 @@ def fetch_page_content(url):
 
     Raises requests.HTTPError if the server returns a non-2xx status.
     """
-    response = requests.get(url)
+    response = requests.get(url, timeout=30)
     response.raise_for_status()
     return BeautifulSoup(response.content, 'html.parser')
 
@@ -34,6 +34,7 @@ def get_event_links(url):
     reprocessing old data.
     """
     links = []
+    seen = set()
     last_len = -1
     page = 1
     # Include prior year so late-season carryover events are not missed.
@@ -51,18 +52,31 @@ def get_event_links(url):
             if year_span is None:
                 continue
             link_year = year_span.text.strip()
-            if link.startswith('/events') and '/leaderboard' in link and int(link_year) >= lookback_year:
-                links.append('https://udisc.com' + link)
+            try:
+                year = int(link_year)
+            except ValueError:
+                continue
+            if link.startswith('/events') and '/leaderboard' in link and year >= lookback_year:
+                full_url = 'https://udisc.com' + link
+                if full_url not in seen:
+                    seen.add(full_url)
+                    links.append(full_url)
         page += 1
     return links
 
 def find_download_links_on_page(page_url):
-    """Find event leaderboard links on any UDisc page."""
+    """Find event leaderboard download links and end date on a UDisc event page.
+
+    Returns a tuple of (links, event_end_date) where event_end_date is a date
+    parsed from the page's <time datetime> elements, or None if not found.
+    For multi-day events the last <time> element is the end date; for single-day
+    events the only <time> element serves as both start and end.
+    """
     links = []
     seen = set()
     soup = fetch_page_content(page_url)
     if not soup:
-        return []
+        return [], None
 
     for a_tag in soup.find_all('a', href=True):
         link = a_tag['href']
@@ -71,16 +85,24 @@ def find_download_links_on_page(page_url):
             if event_url in seen:
                 continue
             seen.add(event_url)
-            links.append((event_url))
+            links.append(event_url)
 
-    return links
+    event_end_date = None
+    time_elements = soup.find_all('time', datetime=True)
+    if time_elements:
+        try:
+            event_end_date = date.fromisoformat(time_elements[-1]['datetime'])
+        except (ValueError, KeyError):
+            pass
+
+    return links, event_end_date
 
 
 def download_event_data(export_url, download_dir=None):
     """Download Excel file from the event's leaderboard export URL."""
     try:
         # Download the Excel file
-        response = requests.get(export_url)
+        response = requests.get(export_url, timeout=60)
         response.raise_for_status()
 
         target_dir = download_dir or EXPORTS_DIR
