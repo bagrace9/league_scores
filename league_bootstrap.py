@@ -42,12 +42,21 @@ def _normalize_league_entry(row):
 
 def load_league_bootstrap_configs(config_path=None):
     config_path = config_path or get_leagues_bootstrap_config_path()
-    if not config_path.exists():
-        return []
-
     try:
-        with config_path.open('r', encoding='utf-8') as f:
-            payload = json.load(f)
+        if isinstance(config_path, str) and config_path.startswith('gs://'):
+            from google.cloud import storage as gcs
+
+            client = gcs.Client()
+            bucket_name, blob_path = config_path[len('gs://'):].split('/', 1)
+            blob = client.bucket(bucket_name).blob(blob_path)
+            if not blob.exists(client):
+                return []
+            payload = json.loads(blob.download_as_text(encoding='utf-8'))
+        else:
+            if not config_path.exists():
+                return []
+            with config_path.open('r', encoding='utf-8') as f:
+                payload = json.load(f)
     except Exception as error:
         logger.error(f"Could not parse league bootstrap config {config_path}: {error}")
         return []
