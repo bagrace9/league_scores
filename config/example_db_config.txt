@@ -1,6 +1,6 @@
 # BigQuery settings
 GCP_PROJECT_ID=your_gcp_project_id
-BIGQUERY_DATASET=league_scores
+BIGQUERY_DATASET=dataset_name
 BIGQUERY_LOCATION=US
 GOOGLE_APPLICATION_CREDENTIALS=your_google_application_credentials
 ARCHIVE_IMPORTED_FILES=true
