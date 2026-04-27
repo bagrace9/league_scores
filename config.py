@@ -7,11 +7,33 @@ OPTIONAL_ENV_KEYS = (
     'BIGQUERY_LOCATION',
     'GOOGLE_APPLICATION_CREDENTIALS',
     'GCS_BUCKET',
-    'GCS_PREFIX',
     'ARCHIVE_IMPORTED_FILES',
-    'UPLOAD_LOG_TO_GCS',
-    'LOG_GCS_PREFIX',
+    'EVENT_UPDATES_PATH',
+    'LEAGUES_BOOTSTRAP_PATH',
 )
+
+
+def _parse_config_text(text):
+    """Parse key=value lines from config file text."""
+    config = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        config[key.strip()] = value.strip()
+    return config
+
+
+def _load_config_from_gcs(gcs_uri):
+    """Download and parse a config txt file from GCS."""
+    from google.cloud import storage as gcs_module
+    client = gcs_module.Client()
+    bucket_name, blob_path = gcs_uri[len('gs://'):].split('/', 1)
+    blob = client.bucket(bucket_name).blob(blob_path)
+    return _parse_config_text(blob.download_as_text(encoding='utf-8'))
 
 
 def _to_bool(value, default=True):
@@ -26,41 +48,39 @@ def _to_bool(value, default=True):
 
 
 def load_db_config(config_path=None):
-    """Load BigQuery settings from environment and/or config file.
+    """Load settings from a config file (local or GCS) plus optional env var overrides.
 
-    Environment variables take precedence over file values.
+    Resolution order (highest priority last, so env vars win):
+    1. GCS config file — if DB_CONFIG_GCS_URI env var is set, or config_path starts with gs://
+    2. Local config file — config_path or the default config/db_config.txt
+    3. Individual environment variables
     """
-    path = Path(config_path) if config_path else CONFIG_FILE_PATH
     config = {}
 
-    if path.exists():
-        with path.open('r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if '=' not in line:
-                    continue
-                key, value = line.split('=', 1)
-                config[key.strip()] = value.strip()
+    gcs_uri = os.getenv('DB_CONFIG_GCS_URI', '').strip()
+    if config_path and str(config_path).startswith('gs://'):
+        gcs_uri = str(config_path)
 
-    for key in REQUIRED_BIGQUERY_KEYS:
+    if gcs_uri:
+        config = _load_config_from_gcs(gcs_uri)
+    else:
+        path = Path(config_path) if config_path else CONFIG_FILE_PATH
+        if path.exists():
+            with path.open('r', encoding='utf-8') as f:
+                config = _parse_config_text(f.read())
+
+    # Individual env vars override file values (useful for local dev overrides)
+    for key in (*REQUIRED_BIGQUERY_KEYS, *OPTIONAL_ENV_KEYS):
         env_value = os.getenv(key)
         if env_value is not None and env_value.strip() != '':
             config[key] = env_value.strip()
 
-    for key in OPTIONAL_ENV_KEYS:
-        env_value = os.getenv(key)
-        if env_value is not None and env_value.strip() != '':
-            config[key] = env_value.strip()
-
-    missing = [key for key in REQUIRED_BIGQUERY_KEYS if key not in config or str(config[key]).strip() == '']
+    missing = [key for key in REQUIRED_BIGQUERY_KEYS if not config.get(key, '').strip()]
     if missing:
-        if not path.exists():
-            raise FileNotFoundError(
-                f"Database config file not found: {path}. Missing required values: {', '.join(missing)}"
-            )
-        raise ValueError(f"Missing required database config values: {', '.join(missing)}")
+        source = gcs_uri or (str(config_path) if config_path else str(CONFIG_FILE_PATH))
+        raise ValueError(
+            f"Missing required config values: {', '.join(missing)} (source: {source})"
+        )
 
     return config
 
@@ -80,11 +100,22 @@ def get_bigquery_config(config_path=None):
 def get_storage_config(config_path=None):
     """Return optional archive storage configuration values."""
     config = load_db_config(config_path)
+    bucket = config.get('GCS_BUCKET')
+    event_updates_path = (config.get('EVENT_UPDATES_PATH') or 'config/event_updates.csv').strip('/')
+    event_updates_gcs_uri = f"gs://{bucket}/{event_updates_path}" if bucket and event_updates_path else ''
 
     return {
-        'bucket': config.get('GCS_BUCKET'),
-        'prefix': config.get('GCS_PREFIX', ''),
+        'bucket': bucket,
         'archive_files': _to_bool(config.get('ARCHIVE_IMPORTED_FILES'), default=True),
-        'upload_log_to_gcs': _to_bool(config.get('UPLOAD_LOG_TO_GCS'), default=False),
-        'log_prefix': config.get('LOG_GCS_PREFIX', ''),
+        'event_updates_gcs_uri': event_updates_gcs_uri,
     }
+
+
+def get_leagues_bootstrap_config_path(config_path=None):
+    """Return the path to the optional leagues bootstrap JSON file."""
+    config = load_db_config(config_path)
+    path_value = (config.get('LEAGUES_BOOTSTRAP_PATH') or 'config/league_configs.json').strip()
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    return Path(__file__).parent / path

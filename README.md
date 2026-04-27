@@ -48,13 +48,14 @@ I built this for the leagues I play in so I could automate weekly standings, pay
 1. Ensure core tables exist
 2. Ensure payout lookup table exists
 3. Read configured leagues from DB
-4. Scrape event/leaderboard URLs
-5. Skip URLs already imported
-6. Download new exports
-7. Import rows into `events`, `raw_scores`, and `hole_scores`
-8. Rebuild `handicaps`
-9. Rebuild `final_scores`
-10. Recreate reporting views
+4. If no leagues exist, optionally bootstrap from `config/league_configs.json`
+5. Scrape event/leaderboard URLs
+6. Skip URLs already imported
+7. Download new exports
+8. Import rows into `events`, `raw_scores`, and `hole_scores`
+9. Rebuild `handicaps`
+10. Rebuild `final_scores`
+11. Recreate reporting views
 
 ## Database Configuration
 
@@ -75,6 +76,24 @@ Set DB settings in your runtime environment (or via systemd `EnvironmentFile`).
 Copy and edit:
 
 - `config/example_db_config.txt` -> `config/db_config.txt`
+
+## Optional League Bootstrap Config
+
+If the `leagues` table is empty, the app will look for:
+
+- `config/league_configs.json`
+
+The path is configurable in `db_config.txt` using:
+
+- `LEAGUES_BOOTSTRAP_PATH=config/league_configs.json`
+
+If that file exists and contains valid league entries, those leagues are inserted before scraping starts.
+
+You can use:
+
+- `config/example_league_configs.json` as a template
+
+This file is optional and only used when there are no leagues in the DB.
 
 ## Local Development Setup
 

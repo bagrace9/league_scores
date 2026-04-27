@@ -296,7 +296,9 @@ def import_downloaded_file(league_id, downloaded_file):
         'num_players': num_players,
         'download_date': downloaded_file.download_date.isoformat() if downloaded_file.download_date else None,
         'is_imported': True,
-        'is_excluded': False,
+        'is_excluded_from_handicap': False,
+        'is_excluded_from_points': False,
+        'points_multiplier': None,
     }
 
     job = client.load_table_from_json([event_row], _bq_table_id('events'))
@@ -392,12 +394,6 @@ def fetch_league_urls(league_id):
     if not rows:
         return []
     return parse_league_urls(rows[0]['league_urls'])
-
-
-def fetch_league_url(league_id):
-    """Fetch the primary URL of a league by its ID."""
-    urls = fetch_league_urls(league_id)
-    return urls[0] if urls else None
 
 
 def fetch_league_by_id(league_id):
@@ -502,3 +498,90 @@ def payouts_table_exists():
     
     return bool(rows and rows[0]['table_count'] > 0)
 
+
+def apply_event_updates(gcs_uri=None):
+    """Reset event update fields, then apply per-event overrides from a CSV in GCS.
+
+    CSV columns:
+        exporturl                 (required) — matches export_url in events table
+        is_excluded_from_handicap (optional bool) — true/false
+        is_excluded_from_points   (optional bool) — true/false
+        points_multiplier         (optional numeric)
+    """
+    _run_bigquery_sql(
+        f"""
+        UPDATE {_bq_table('events')}
+        SET is_excluded_from_handicap = FALSE,
+            is_excluded_from_points = FALSE,
+            points_multiplier = NULL,
+            update_time = CURRENT_TIMESTAMP()
+        WHERE TRUE
+        """
+    )
+
+    if not gcs_uri:
+        logger.debug('No event updates GCS URI provided; no event updates will be applied.')
+        return
+
+    from google.cloud import storage as gcs
+    import io
+    try:
+        client = gcs.Client()
+        bucket_name, blob_path = gcs_uri[len('gs://'):].split('/', 1)
+        blob = client.bucket(bucket_name).blob(blob_path)
+        csv_bytes = blob.download_as_bytes()
+    except Exception as e:
+        logger.warning(f"Could not download event updates file from {gcs_uri}: {e}; skipping updates.")
+        return
+
+    df = pd.read_csv(io.BytesIO(csv_bytes), dtype=str)
+    if 'exporturl' not in df.columns:
+        raise ValueError(f"Missing required column 'exporturl' in event updates file {gcs_uri}")
+
+    df['exporturl'] = df['exporturl'].fillna('').str.strip()
+    df = df[df['exporturl'] != '']
+
+    def _to_bool(val):
+        if pd.isna(val):
+            return None
+        return str(val).strip().lower() in ('true', '1', 'yes')
+
+    applied = 0
+    for _, row in df.iterrows():
+        export_url = row['exporturl']
+        params = [bigquery.ScalarQueryParameter('export_url', 'STRING', export_url)]
+        set_clauses = ['update_time = CURRENT_TIMESTAMP()']
+
+        if 'is_excluded_from_handicap' in df.columns:
+            val = _to_bool(row.get('is_excluded_from_handicap'))
+            if val is not None:
+                set_clauses.append('is_excluded_from_handicap = @is_excluded_from_handicap')
+                params.append(bigquery.ScalarQueryParameter('is_excluded_from_handicap', 'BOOL', val))
+
+        if 'is_excluded_from_points' in df.columns:
+            val = _to_bool(row.get('is_excluded_from_points'))
+            if val is not None:
+                set_clauses.append('is_excluded_from_points = @is_excluded_from_points')
+                params.append(bigquery.ScalarQueryParameter('is_excluded_from_points', 'BOOL', val))
+
+        if 'points_multiplier' in df.columns:
+            raw = row.get('points_multiplier')
+            if pd.notna(raw) and str(raw).strip() != '':
+                try:
+                    multiplier = float(str(raw).strip())
+                    set_clauses.append('points_multiplier = @points_multiplier')
+                    params.append(bigquery.ScalarQueryParameter('points_multiplier', 'NUMERIC', multiplier))
+                except ValueError:
+                    logger.warning(f"Invalid points_multiplier '{raw}' for {export_url}; skipping field.")
+
+        _run_bigquery_sql(
+            f"""
+            UPDATE {_bq_table('events')}
+            SET {', '.join(set_clauses)}
+            WHERE export_url = @export_url
+            """,
+            params,
+        )
+        applied += 1
+
+    logger.info(f"Applied {applied} event update rule(s) from {gcs_uri}.")
