@@ -19,18 +19,25 @@ from utils import format_league_urls, parse_league_urls
 
 logger = logging.getLogger(__name__)
 
+_bq_client_cache = None
+
 
 def _get_bigquery_client():
+    global _bq_client_cache
+    if _bq_client_cache is not None:
+        return _bq_client_cache
     cfg = get_bigquery_config()
     credentials_path = cfg.get('credentials_path')
     if credentials_path:
         credentials = service_account.Credentials.from_service_account_file(credentials_path)
-        return bigquery.Client(
+        _bq_client_cache = bigquery.Client(
             project=cfg['project_id'],
             location=cfg.get('location'),
             credentials=credentials,
         )
-    return bigquery.Client(project=cfg['project_id'], location=cfg.get('location'))
+    else:
+        _bq_client_cache = bigquery.Client(project=cfg['project_id'], location=cfg.get('location'))
+    return _bq_client_cache
 
 
 def _bq_dataset_ref():
@@ -58,20 +65,8 @@ def _run_bigquery_sql(sql, query_parameters=None):
     return list(client.query(sql, job_config=job_config).result())
 
 
-def _format_sql_for_backend(sql_text):
-    return sql_text.replace('league_scores.', f"{_bq_dataset_ref()}.")
-
-
-def _execute_script(script_path):
-    """Read and execute a SQL script file."""
-    with open(script_path, 'r', encoding='utf-8') as sql_file:
-        script = _format_sql_for_backend(sql_file.read())
-    _run_bigquery_sql(script)
-
-
-def run_create_script(script_path='sql/bigquery/create_perm_tables.sql'):
-    """Run the SQL script to create necessary database objects."""
-    _execute_script(script_path)
+def _substitute_dataset(sql_text):
+    return sql_text.replace('{dataset_name}', _bq_dataset_ref())
 
 
 def create_league(
@@ -213,15 +208,6 @@ def fetch_imported_event_urls(league_id=None):
     return {row['export_url'] for row in rows}
 
 
-def fetch_event_by_url(export_url):
-    """Fetch a single event record by its export URL."""
-    rows = _run_bigquery_sql(
-        f"SELECT * FROM {_bq_table('events')} WHERE export_url = @export_url LIMIT 1",
-        [bigquery.ScalarQueryParameter('export_url', 'STRING', export_url)],
-    )
-    return dict(rows[0].items()) if rows else None
-
-
 def _derive_event_name_from_filename(filename):
     """Derive event name from downloaded filename."""
     stem = Path(filename).stem
@@ -309,8 +295,10 @@ def import_downloaded_file(league_id, downloaded_file):
         'file_path': downloaded_file.filepath,
         'num_players': num_players,
         'download_date': downloaded_file.download_date.isoformat() if downloaded_file.download_date else None,
-        'is_imported': True,
-        'is_excluded': False,
+        'is_imported': False,
+        'is_excluded_from_handicap': False,
+        'is_excluded_from_points': False,
+        'points_multiplier': None,
     }
 
     job = client.load_table_from_json([event_row], _bq_table_id('events'))
@@ -371,72 +359,17 @@ def import_downloaded_file(league_id, downloaded_file):
         if job.errors:
             raise Exception(f"Failed to insert hole score rows: {job.errors}")
 
-    return event_id
-
-
-def insert_event_record(
-        league_id,
-        event_name,
-        export_url,
-        event_end_date=None,
-        num_players=None,
-        is_imported=False,
-):
-    """Insert an event record to the database."""
-    event_id = str(uuid.uuid4())
-    _run_bigquery_sql(
-        f"""
-        INSERT INTO {_bq_table('events')} (
-            event_id,
-            league_id,
-            event_name,
-            export_url,
-            event_end_date,
-            num_players,
-            is_imported,
-            create_time,
-            update_time
-        )
-        VALUES (
-            @event_id,
-            @league_id,
-            @event_name,
-            @export_url,
-            @event_end_date,
-            @num_players,
-            @is_imported,
-            CURRENT_TIMESTAMP(),
-            CURRENT_TIMESTAMP()
-        )
-        """,
-        [
-            bigquery.ScalarQueryParameter('event_id', 'STRING', event_id),
-            bigquery.ScalarQueryParameter('league_id', 'STRING', str(league_id)),
-            bigquery.ScalarQueryParameter('event_name', 'STRING', event_name),
-            bigquery.ScalarQueryParameter('export_url', 'STRING', export_url),
-            bigquery.ScalarQueryParameter(
-                'event_end_date',
-                'DATE',
-                event_end_date.isoformat() if event_end_date else None,
-            ),
-            bigquery.ScalarQueryParameter('num_players', 'INT64', num_players),
-            bigquery.ScalarQueryParameter('is_imported', 'BOOL', bool(is_imported)),
-        ],
-    )
-    return event_id
-
-
-def mark_event_imported_by_url(export_url):
-    """Mark an existing event record as imported by export URL."""
     _run_bigquery_sql(
         f"""
         UPDATE {_bq_table('events')}
         SET is_imported = TRUE,
             update_time = CURRENT_TIMESTAMP()
-        WHERE export_url = @export_url
+        WHERE event_id = @event_id
         """,
-        [bigquery.ScalarQueryParameter('export_url', 'STRING', export_url)],
+        [bigquery.ScalarQueryParameter('event_id', 'STRING', event_id)],
     )
+
+    return event_id
 
 
 def update_event_file_metadata(event_id, file_name, file_path):
@@ -458,20 +391,10 @@ def update_event_file_metadata(event_id, file_name, file_path):
 
 
 def execute_sql_script(script_path):
-    """Execute a given SQL script."""
-    _execute_script(script_path)
-
-
-def execute_sql(sql):
-    """Execute a given SQL statement."""
-    _run_bigquery_sql(_format_sql_for_backend(sql))
-
-
-def execute_update_points_script(league_id, script_path='sql/bigquery/drop_create_final_scores.sql'):
-    """Execute the final scores SQL script for a specific league."""
+    """Read and execute a SQL script file."""
     with open(script_path, 'r', encoding='utf-8') as sql_file:
-        script = sql_file.read().replace("{league_id}", str(league_id))
-    _run_bigquery_sql(_format_sql_for_backend(script))
+        script = _substitute_dataset(sql_file.read())
+    _run_bigquery_sql(script)
 
 
 def fetch_league_urls(league_id):
@@ -483,12 +406,6 @@ def fetch_league_urls(league_id):
     if not rows:
         return []
     return parse_league_urls(rows[0]['league_urls'])
-
-
-def fetch_league_url(league_id):
-    """Fetch the primary URL of a league by its ID."""
-    urls = fetch_league_urls(league_id)
-    return urls[0] if urls else None
 
 
 def fetch_league_by_id(league_id):
@@ -548,8 +465,8 @@ def create_payout_table():
                 {
                     'n_players': n_players,
                     'position': position,
-                    'weight': round(weight, 12),
-                    'percentage': round(payout_fraction, 12),
+                    'weight': round(weight, 9),
+                    'percentage': round(payout_fraction, 9),
                     'payout_percent': round(payout_fraction * 100, 4),
                 }
             )
@@ -581,11 +498,100 @@ def create_payout_table():
 def payouts_table_exists():
     """Return True when the payouts table already exists in the configured dataset."""
     dataset_ref = _bq_dataset_ref()
-    rows = _run_bigquery_sql(
-        f"""
+
+    sql =  f"""
         SELECT COUNT(1) AS table_count
         FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
         WHERE table_name = 'payouts'
         """
-    )
+    rows = _run_bigquery_sql(sql)
+    
     return bool(rows and rows[0]['table_count'] > 0)
+
+
+def apply_event_updates(gcs_uri=None):
+    """Reset event update fields, then apply per-event overrides from a CSV in GCS.
+
+    CSV columns:
+        exporturl                 (required) — matches export_url in events table
+        is_excluded_from_handicap (optional bool) — true/false
+        is_excluded_from_points   (optional bool) — true/false
+        points_multiplier         (optional numeric)
+    """
+    if not gcs_uri:
+        logger.debug('No event updates GCS URI provided; no event updates will be applied.')
+        return
+
+    _run_bigquery_sql(
+        f"""
+        UPDATE {_bq_table('events')}
+        SET is_excluded_from_handicap = FALSE,
+            is_excluded_from_points = FALSE,
+            points_multiplier = NULL,
+            update_time = CURRENT_TIMESTAMP()
+        WHERE TRUE
+        """
+    )
+
+    from google.cloud import storage as gcs
+    import io
+    try:
+        client = gcs.Client()
+        bucket_name, blob_path = gcs_uri[len('gs://'):].split('/', 1)
+        blob = client.bucket(bucket_name).blob(blob_path)
+        csv_bytes = blob.download_as_bytes()
+    except Exception as e:
+        logger.warning(f"Could not download event updates file from {gcs_uri}: {e}; skipping updates.")
+        return
+
+    df = pd.read_csv(io.BytesIO(csv_bytes), dtype=str)
+    if 'exporturl' not in df.columns:
+        raise ValueError(f"Missing required column 'exporturl' in event updates file {gcs_uri}")
+
+    df['exporturl'] = df['exporturl'].fillna('').str.strip()
+    df = df[df['exporturl'] != '']
+
+    def _to_bool(val):
+        if pd.isna(val):
+            return None
+        return str(val).strip().lower() in ('true', '1', 'yes')
+
+    applied = 0
+    for _, row in df.iterrows():
+        export_url = row['exporturl']
+        params = [bigquery.ScalarQueryParameter('export_url', 'STRING', export_url)]
+        set_clauses = ['update_time = CURRENT_TIMESTAMP()']
+
+        if 'is_excluded_from_handicap' in df.columns:
+            val = _to_bool(row.get('is_excluded_from_handicap'))
+            if val is not None:
+                set_clauses.append('is_excluded_from_handicap = @is_excluded_from_handicap')
+                params.append(bigquery.ScalarQueryParameter('is_excluded_from_handicap', 'BOOL', val))
+
+        if 'is_excluded_from_points' in df.columns:
+            val = _to_bool(row.get('is_excluded_from_points'))
+            if val is not None:
+                set_clauses.append('is_excluded_from_points = @is_excluded_from_points')
+                params.append(bigquery.ScalarQueryParameter('is_excluded_from_points', 'BOOL', val))
+
+        if 'points_multiplier' in df.columns:
+            raw = row.get('points_multiplier')
+            if pd.notna(raw) and str(raw).strip() != '':
+                try:
+                    multiplier = float(str(raw).strip())
+                    set_clauses.append('points_multiplier = @points_multiplier')
+                    params.append(bigquery.ScalarQueryParameter('points_multiplier', 'NUMERIC', multiplier))
+                except ValueError:
+                    logger.warning(f"Invalid points_multiplier '{raw}' for {export_url}; skipping field.")
+
+        _run_bigquery_sql(
+            f"""
+            UPDATE {_bq_table('events')}
+            SET {', '.join(set_clauses)}
+            WHERE export_url = @export_url
+            """,
+            params,
+        )
+        applied += 1
+
+    logger.info(f"Applied {applied} event update rule(s) from {gcs_uri}.")
