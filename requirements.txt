@@ -1,6 +1,7 @@
 requests
 bs4
 pandas
+pandas-gbq
 openpyxl
 google-cloud-bigquery
 google-cloud-storage
