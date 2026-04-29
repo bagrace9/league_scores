@@ -36,7 +36,7 @@ def _load_config_from_gcs(gcs_uri):
     return _parse_config_text(blob.download_as_text(encoding='utf-8'))
 
 
-def _to_bool(value, default=True):
+def _to_bool(value, default=False):
     if value is None:
         return default
     normalized = str(value).strip().lower()
