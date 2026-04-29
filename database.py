@@ -554,9 +554,9 @@ def apply_event_updates(gcs_uri=None):
     sql = f"""
         UPDATE {_bq_table('events')} t
         SET 
-            is_excluded_from_handicap = COALESCE(SAFE.PARSE_BOOL(s.is_excluded_from_handicap), t.is_excluded_from_handicap),
-            is_excluded_from_points = COALESCE(SAFE.PARSE_BOOL(s.is_excluded_from_points), t.is_excluded_from_points),
-            points_multiplier = COALESCE(SAFE.CAST(s.points_multiplier AS NUMERIC), t.points_multiplier),
+            is_excluded_from_handicap = COALESCE(CAST(s.is_excluded_from_handicap AS BOOL), t.is_excluded_from_handicap),
+            is_excluded_from_points = COALESCE(CAST(s.is_excluded_from_points AS BOOL), t.is_excluded_from_points),
+            points_multiplier = COALESCE(CAST(s.points_multiplier AS NUMERIC), t.points_multiplier),
             update_time = CURRENT_TIMESTAMP()
         FROM `{staging_table_id}` s
         WHERE t.export_url = s.exporturl
