@@ -4,3 +4,5 @@ pandas
 openpyxl
 google-cloud-bigquery
 google-cloud-storage
+pyarrow
+pytest
