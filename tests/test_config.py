@@ -25,7 +25,7 @@ def test_to_bool():
 
 
 @patch('config.Path.exists', return_value=True)
-@patch('builtins.open', new_callable=mock_open, read_data="GCP_PROJECT_ID=test-project\nBIGQUERY_DATASET=test-dataset")
+@patch('pathlib.Path.open', new_callable=mock_open, read_data="GCP_PROJECT_ID=test-project\nBIGQUERY_DATASET=test-dataset")
 def test_load_db_config_from_local_file(mock_file_open, mock_path_exists):
     # Clear cache for testing
     config._config_cache = None
@@ -67,9 +67,10 @@ def test_load_db_config_missing_required_keys_from_file():
     # Clear cache for testing
     config._config_cache = None
 
-    # Mock an empty config file
-    with patch('config.Path.exists', return_value=True), \
-         patch('builtins.open', new_callable=mock_open, read_data=""):
+    # Mock an empty config file and clear env vars
+    with patch.dict(os.environ, {}, clear=True), \
+         patch('config.Path.exists', return_value=True), \
+         patch('pathlib.Path.open', new_callable=mock_open, read_data=""):
         with pytest.raises(ValueError, match="Missing required config values: GCP_PROJECT_ID, BIGQUERY_DATASET"):
             load_db_config()
 
