@@ -509,64 +509,23 @@ def payouts_table_exists():
     return bool(rows and rows[0]['table_count'] > 0)
 
 
-def apply_event_updates(gcs_uri=None):
-    """Reset event update fields, then apply per-event overrides from a CSV in GCS.
-
-    CSV columns:
-        exporturl                 (required) — matches export_url in events table
-        is_excluded_from_handicap (optional bool) — true/false
-        is_excluded_from_points   (optional bool) — true/false
-        points_multiplier         (optional numeric)
-    """
-    if not gcs_uri:
-        logger.debug('No event updates GCS URI provided; no event updates will be applied.')
-        return
-
-    from google.cloud import storage as gcs
-    import io
-
-    try:
-        storage_client = gcs.Client()
-        bucket_name, blob_path = gcs_uri[len('gs://'):].split('/', 1)
-        blob = storage_client.bucket(bucket_name).blob(blob_path)
-        csv_bytes = blob.download_as_bytes()
-    except Exception as e:
-        logger.warning(f"Could not download event updates file from {gcs_uri}: {e}; skipping updates.")
-        return
-
-    df = pd.read_csv(io.BytesIO(csv_bytes), dtype=str)
-    if 'exporturl' not in df.columns:
-        raise ValueError(f"Missing required column 'exporturl' in event updates file {gcs_uri}")
-
-    df['exporturl'] = df['exporturl'].fillna('').str.strip()
-    df = df[df['exporturl'] != '']
-    
-    # Load updates to a temporary staging table
-    client = _get_bigquery_client()
-    staging_table_id = f"{_bq_dataset_ref()}.tmp_event_updates"
-    
-    job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_TRUNCATE",
+def apply_event_updates():
+    """Reset event update fields, then apply per-event overrides from the event_updates table."""
+    # Reset defaults
+    _run_bigquery_sql(
+        f"UPDATE {_bq_table('events')} SET is_excluded_from_handicap = FALSE, is_excluded_from_points = FALSE, points_multiplier = NULL WHERE TRUE"
     )
-    client.load_table_from_dataframe(df, staging_table_id, job_config=job_config).result()
 
-    # Single MERGE/UPDATE statement for all rows
+    # Single UPDATE statement from the event_updates table managed by the admin app
     sql = f"""
         UPDATE {_bq_table('events')} t
         SET 
-            is_excluded_from_handicap = COALESCE(CAST(s.is_excluded_from_handicap AS BOOL), t.is_excluded_from_handicap),
-            is_excluded_from_points = COALESCE(CAST(s.is_excluded_from_points AS BOOL), t.is_excluded_from_points),
-            points_multiplier = COALESCE(CAST(s.points_multiplier AS NUMERIC), t.points_multiplier),
+            is_excluded_from_handicap = COALESCE(s.is_excluded_from_handicap, t.is_excluded_from_handicap),
+            is_excluded_from_points = COALESCE(s.is_excluded_from_points, t.is_excluded_from_points),
+            points_multiplier = COALESCE(s.points_multiplier, t.points_multiplier),
             update_time = CURRENT_TIMESTAMP()
-        FROM `{staging_table_id}` s
+        FROM {_bq_table('event_updates')} s
         WHERE t.export_url = s.exporturl
     """
-    
-    # Reset defaults then apply updates
-    _run_bigquery_sql(f"UPDATE {_bq_table('events')} SET is_excluded_from_handicap = FALSE, is_excluded_from_points = FALSE, points_multiplier = NULL WHERE TRUE")
     _run_bigquery_sql(sql)
-    
-    # Cleanup staging table
-    client.delete_table(staging_table_id, not_found_ok=True)
-
-    logger.info(f"Applied batch event updates from {gcs_uri}.")
+    logger.info("Applied event updates from database overrides.")
