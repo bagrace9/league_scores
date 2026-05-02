@@ -29,7 +29,6 @@ SEASON_EVENT_SUMMARY_SQL_PATH = 'sql/bigquery/create_season_event_summary_table.
 def main():
     
     storage_config = get_storage_config()
-    event_updates_gcs_uri = (storage_config.get('event_updates_gcs_uri') or '').strip()
 
     database.execute_sql_script(CREATE_TABLES_SQL_PATH)
     if not database.payouts_table_exists():
@@ -173,7 +172,7 @@ def main():
         logger.info('Finished importing files.')
     
     
-    database.apply_event_updates(gcs_uri=event_updates_gcs_uri)
+    database.apply_event_updates()
 
     # Run in dependency order.
     for label, path in [
