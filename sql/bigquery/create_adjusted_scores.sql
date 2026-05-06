@@ -15,9 +15,6 @@ WITH scores_with_ranks AS (
         , rs.player_username
         , rs.raw_score
         , h.handicap
-        , h.handicap_scores
-        , h.next_handicap
-        , h.next_handicap_scores
         , COALESCE(rs.raw_score - h.handicap, rs.raw_score) AS adjusted_score
 
         , RANK() OVER (
@@ -59,19 +56,16 @@ SELECT
     , swr.player_username
     , swr.raw_score
     , swr.handicap
-    , swr.handicap_scores
-    , swr.next_handicap
-    , swr.next_handicap_scores
     , swr.adjusted_score
     , swr.place
     , case when e.is_excluded_from_points = true 
            then 0
-           else swr.num_players - swr.place + 1
+           else (swr.num_players - swr.place + 1) * COALESCE(e.points_multiplier, 1)
       end as points
     , CASE
+        -- Only track payouts for events from 2016 onwards (historical league tracking start)
         WHEN extract(year from e.event_end_date) >= 2016
-         AND e.is_excluded_from_points = false 
-        THEN ROUND((swr.num_players * l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
+        THEN ROUND(swr.num_players * COALESCE(e.buy_in_override_ammt, l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
         ELSE 0
       END AS payout
 
@@ -88,7 +82,20 @@ JOIN leagues l
 
 
 SELECT
-    swp.*
+      swp.event_id
+    , swp.league_id
+    , swp.league_name
+    , swp.event_end_date
+    , swp.year
+    , swp.division
+    , swp.player_name
+    , swp.player_username
+    , swp.raw_score
+    , swp.handicap
+    , swp.adjusted_score
+    , swp.place
+    , swp.points
+    , swp.payout
     ,sum(points) 
            over (partition by swp.league_id, swp.division, swp.player_username , swp.year order by swp.event_end_date) as season_points_as_of_event
     
