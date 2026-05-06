@@ -11,6 +11,7 @@ import scrape_udisc
 import database
 from datetime import date
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import tempfile
 from config import get_storage_config
 from file import File
@@ -68,43 +69,40 @@ def main():
     
     
     if download_files:
-        for league_id in league_ids:
-            league_urls = database.fetch_league_urls(league_id)
-            for league_url in league_urls:
-                event_links = scrape_udisc.get_event_links(league_url)
-                for event_link in event_links:
-                    download_links, event_end_date = scrape_udisc.find_download_links_on_page(event_link)
-                    for export_url in download_links:
-                        if export_url in imported_urls:
-                            logger.info(f"Already imported event, skipping download: {export_url}")
-                            continue
-                        elif export_url.endswith('leaderboard/export'):
-                            result = scrape_udisc.download_event_data(export_url, download_dir=str(download_dir))
-                            if result['success']:
-                                result['event_end_date'] = event_end_date
-                                downloaded_file = File.from_download_result(result)
+        def process_event_link(league_id, event_link):
+            """Worker to fetch and download from a single event link."""
+            downloads = []
+            download_links, event_end_date = scrape_udisc.find_download_links_on_page(event_link)
+            for export_url in download_links:
+                if export_url in imported_urls or not export_url.endswith('leaderboard/export'):
+                    continue
+                
+                result = scrape_udisc.download_event_data(export_url, download_dir=str(download_dir))
+                if result['success']:
+                    result['event_end_date'] = event_end_date
+                    df_file = File.from_download_result(result)
+                    downloads.append((league_id, df_file))
+            return downloads
 
-                                if (
-                                    downloaded_file.event_end_date is not None
-                                    and downloaded_file.event_end_date >= date.today()
-                                ):
-                                    deleted = downloaded_file.delete_from_disk()
-                                    if deleted:
-                                        logger.info(
-                                            f"Deleted file for unfinished event: {downloaded_file.filename} (event_end_date={downloaded_file.event_end_date})"
-                                        )
-                                    else:
-                                        logger.warning(
-                                            f"Could not delete unfinished event file: {downloaded_file.filename}"
-                                        )
-                                    del downloaded_file
-                                    continue
-
-                                downloaded_files.append((league_id, downloaded_file))
-                                imported_urls.add(export_url)
-                                logger.info(f"Queued for import: {downloaded_file.filename}")
-                            else:
-                                logger.error(f"Failed to download {export_url}: {result['error']}")
+        # Use threads for network-bound scraping tasks
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_url = {}
+            for league_id in league_ids:
+                for league_url in database.fetch_league_urls(league_id):
+                    # Pagination in get_event_links is still sequential per league
+                    event_links = scrape_udisc.get_event_links(league_url)
+                    for link in event_links:
+                        future_to_url[executor.submit(process_event_link, league_id, link)] = link
+            
+            for future in as_completed(future_to_url):
+                try:
+                    results = future.result()
+                    for lid, dfile in results:
+                        downloaded_files.append((lid, dfile))
+                        imported_urls.add(dfile.export_url)
+                        logger.info(f"Queued for import: {dfile.filename}")
+                except Exception as e:
+                    logger.error(f"Worker failed for {future_to_url[future]}: {e}")
         
         if not downloaded_files:
             logger.info("No new files to import.")
@@ -112,69 +110,63 @@ def main():
         else:
             logger.info(f"Finished downloading files. Starting import of {len(downloaded_files)} new files.")
 
+            all_event_rows = []
+            all_raw_rows = []
+            all_hole_rows = []
+            finished_event_ids = []
+            import_manifest = [] # List of (event_id, downloaded_file)
+
             for league_id, downloaded_file in downloaded_files:
                 try:
-                    event_id = database.import_downloaded_file(league_id, downloaded_file)
-                    logger.info(
-                        f"Imported file into events/raw_scores/hole_scores (event_id={event_id}): {downloaded_file.filename}"
-                    )
+                    is_finished = downloaded_file.event_end_date < date.today() if downloaded_file.event_end_date else True
+                    existing_event = database.fetch_event_by_url(downloaded_file.export_url)
+                    
+                    # If it's already in the DB and finished, we've likely handled it (or it's an edge case)
+                    if existing_event and existing_event['is_imported'] and is_finished:
+                        continue
 
-                    if not archive_files:
-                        database.update_event_file_metadata(
-                            event_id,
-                            downloaded_file.filename,
-                            None,
-                        )
-                        deleted = downloaded_file.delete_from_disk()
-                        if deleted:
-                            logger.info(f"Deleted imported file from local disk: {downloaded_file.filepath}")
+                    event_id = existing_event['event_id'] if existing_event else None
+                    data = database.prepare_import_data(league_id, downloaded_file, event_id=event_id)
+                    
+                    if data:
+                        # Add event metadata if the event record doesn't exist yet
+                        if not existing_event:
+                            all_event_rows.append(data['event_row'])
+                        
+                        if is_finished:
+                            all_raw_rows.extend(data['raw_score_rows'])
+                            all_hole_rows.extend(data['hole_score_rows'])
+                            finished_event_ids.append(data['event_id'])
+                            import_manifest.append((data['event_id'], downloaded_file))
+                            logger.info(f"Prepared full import: {downloaded_file.filename}")
                         else:
-                            logger.warning(f"Could not delete imported file from local disk: {downloaded_file.filepath}")
-                    elif archive_bucket:
-                        archived = downloaded_file.upload_to_gcs(archive_bucket, archive_subdir)
-                        if archived:
-                            database.update_event_file_metadata(
-                                event_id,
-                                downloaded_file.filename,
-                                downloaded_file.filepath,
-                            )
-                            logger.info(f"Archived imported file to {downloaded_file.filepath}")
-                        else:
-                            logger.warning(
-                                f"Could not archive imported file to GCS: {downloaded_file.filename}; error={downloaded_file.error}"
-                            )
-                            deleted = downloaded_file.delete_from_disk()
-                            if deleted:
-                                logger.info(
-                                    f"Deleted temporary local file after GCS archive failure: {downloaded_file.filepath}"
-                                )
-                            else:
-                                logger.warning(
-                                    f"Could not delete temporary local file after GCS archive failure: {downloaded_file.filepath}"
-                                )
-                    else:
-                        moved = downloaded_file.move_to_directory(imported_dir)
-                        if moved:
-                            database.update_event_file_metadata(
-                                event_id,
-                                downloaded_file.filename,
-                                downloaded_file.filepath,
-                            )
-                            logger.info(f"Moved imported file to {downloaded_file.filepath}")
-                        else:
-                            logger.warning(f"Could not move imported file: {downloaded_file.filename}")
+                            downloaded_file.delete_from_disk()
+                            logger.info(f"Added unfinished event metadata only: {downloaded_file.filename}")
+                            
                 except Exception as error:
-                    logger.error(
-                        f"Failed to import file {downloaded_file.filename}: {error}"
-                    )
-                    if archive_bucket or not archive_files:
-                        deleted = downloaded_file.delete_from_disk()
-                        if deleted:
-                            logger.info(f"Deleted local file after import failure: {downloaded_file.filepath}")
+                    logger.error(f"Failed to parse file {downloaded_file.filename}: {error}")
+
+            if all_event_rows or all_raw_rows:
+                database.execute_bulk_import(all_event_rows, all_raw_rows, all_hole_rows, mark_imported_ids=finished_event_ids)
+                logger.info(f"Bulk import completed. {len(all_event_rows)} new event records, {len(finished_event_ids)} events fully imported.")
+                
+                metadata_updates = []
+                for event_id, downloaded_file in import_manifest:
+                    if not archive_files:
+                        downloaded_file.delete_from_disk()
+                        metadata_updates.append({'event_id': event_id, 'file_name': downloaded_file.filename, 'file_path': None})
+                    elif archive_bucket:
+                        if downloaded_file.upload_to_gcs(archive_bucket, archive_subdir):
+                            metadata_updates.append({'event_id': event_id, 'file_name': downloaded_file.filename, 'file_path': downloaded_file.filepath})
                         else:
-                            logger.warning(
-                                f"Could not delete local file after import failure: {downloaded_file.filepath}"
-                            )
+                            downloaded_file.delete_from_disk()
+                    else:
+                        if downloaded_file.move_to_directory(imported_dir):
+                            metadata_updates.append({'event_id': event_id, 'file_name': downloaded_file.filename, 'file_path': downloaded_file.filepath})
+                
+                if metadata_updates:
+                    database.bulk_update_event_file_metadata(metadata_updates)
+                    logger.info("Updated file metadata for all imported events.")
 
             logger.info('Finished importing files.')
         
