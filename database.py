@@ -222,7 +222,16 @@ def _normalize_column_name(name):
 
 def _load_import_dataframe(file_path):
     """Load raw export as-is, then expose normalized columns for flexible mapping."""
-    df = pd.read_excel(file_path)
+    # Using 'calamine' engine is significantly faster for large Excel files
+    try:
+        df = pd.read_excel(file_path, engine='calamine')
+    except (ImportError, ValueError):
+        # Fallback to default if calamine is not installed
+        df = pd.read_excel(file_path)
+
+    if df.empty:
+        return df
+
     if df.empty:
         return df
 
@@ -265,11 +274,11 @@ def _extract_hole_number(column_name):
     return None
 
 
-def import_downloaded_file(league_id, downloaded_file):
-    """Import one downloaded leaderboard file into events, raw_scores, and hole_scores."""
+def prepare_import_data(league_id, downloaded_file, event_id=None):
+    """Parse a leaderboard file and return row dictionaries for bulk import."""
     df = _load_import_dataframe(downloaded_file.filepath)
     if df.empty:
-        raise ValueError(f"No rows found in file: {downloaded_file.filepath}")
+        return None
 
     available_columns = set(df.columns)
     required_columns = {"division", "name", "username", "round_total_score"}
@@ -279,8 +288,8 @@ def import_downloaded_file(league_id, downloaded_file):
             f"Missing required columns in file {downloaded_file.filepath}: {', '.join(missing_columns)}"
         )
 
-    client = _get_bigquery_client()
-    event_id = str(uuid.uuid4())
+    if event_id is None:
+        event_id = str(uuid.uuid4())
     event_name = _derive_event_name_from_filename(downloaded_file.filename)
     num_players = int(df['name'].notna().sum()) if 'name' in df.columns else len(df)
 
@@ -294,7 +303,7 @@ def import_downloaded_file(league_id, downloaded_file):
         'file_name': downloaded_file.filename,
         'file_path': downloaded_file.filepath,
         'num_players': num_players,
-        'download_date': downloaded_file.download_date.isoformat() if downloaded_file.download_date else None,
+        'download_date': downloaded_file.download_date.strftime('%Y-%m-%d %H:%M:%S') if downloaded_file.download_date else None,
         'is_imported': False,
         'is_excluded_from_handicap': False,
         'is_excluded_from_points': False,
@@ -303,93 +312,123 @@ def import_downloaded_file(league_id, downloaded_file):
         'points_multiplier': None,
     }
 
-    job = client.load_table_from_json([event_row], _bq_table_id('events'))
-    job.result()
-    if job.errors:
-        raise Exception(f"Failed to insert event row: {job.errors}")
-
     raw_score_rows = []
     hole_score_rows = []
 
-    for raw_row in df.to_dict(orient="records"):
-        row = _normalize_row(raw_row)
+    # Vectorized approach: identify hole columns and prepare score IDs
+    df['raw_score_id'] = [str(uuid.uuid4()) for _ in range(len(df))]
+    hole_cols = [c for c in df.columns if _extract_hole_number(c) is not None]
 
-        division = _to_text(row.get("division"))
-        player_name = _to_text(row.get("name"))
-        player_username = _to_text(row.get("username"))
-        raw_score = _to_int(row.get("round_total_score"))
+    # Prepare Raw Scores
+    for _, row in df.iterrows():
+        p_name = _to_text(row.get('name'))
+        if not p_name: continue
+        
+        raw_score_rows.append({
+            'raw_score_id': row['raw_score_id'],
+            'event_id': event_id,
+            'league_id': str(league_id),
+            'division': _to_text(row.get('division')),
+            'player_name': p_name,
+            'player_username': _to_text(row.get('username')),
+            'raw_score': _to_int(row.get('round_total_score')),
+        })
 
-        if player_name is None:
-            continue
-
-        raw_score_id = str(uuid.uuid4())
-        raw_score_rows.append(
-            {
-                'raw_score_id': raw_score_id,
-                'event_id': event_id,
-                'league_id': str(league_id),
-                'division': division,
-                'player_name': player_name,
-                'player_username': player_username,
-                'raw_score': raw_score,
-            }
-        )
-
-        for column_name, value in row.items():
-            hole_number = _extract_hole_number(column_name)
-            hole_score = _to_int(value)
-            if hole_number is None or hole_score is None:
-                continue
-            hole_score_rows.append(
-                {
+    # Use Melt to flatten hole scores (vectorized pivot)
+    if hole_cols:
+        melted = df.melt(id_vars=['raw_score_id'], value_vars=hole_cols, var_name='h_col', value_name='h_score')
+        melted = melted.dropna(subset=['h_score'])
+        for _, row in melted.iterrows():
+            h_num = _extract_hole_number(row['h_col'])
+            h_val = _to_int(row['h_score'])
+            if h_num and h_val:
+                hole_score_rows.append({
                     'hole_score_id': str(uuid.uuid4()),
-                    'raw_score_id': raw_score_id,
-                    'hole_number': hole_number,
-                    'hole_score': hole_score,
-                }
-            )
+                    'raw_score_id': row['raw_score_id'],
+                    'hole_number': h_num,
+                    'hole_score': h_val,
+                })
+
+    return {
+        'event_id': event_id,
+        'event_row': event_row,
+        'raw_score_rows': raw_score_rows,
+        'hole_score_rows': hole_score_rows
+    }
+
+
+def execute_bulk_import(event_rows, raw_score_rows, hole_score_rows, mark_imported_ids=None):
+    """Perform batch load jobs for all collected rows."""
+    client = _get_bigquery_client()
+
+    if event_rows:
+        job = client.load_table_from_json(event_rows, _bq_table_id('events'))
+        job.result()
+        if job.errors: raise Exception(f"Events load failed: {job.errors}")
 
     if raw_score_rows:
         job = client.load_table_from_json(raw_score_rows, _bq_table_id('raw_scores'))
         job.result()
-        if job.errors:
-            raise Exception(f"Failed to insert raw score rows: {job.errors}")
+        if job.errors: raise Exception(f"Raw scores load failed: {job.errors}")
 
     if hole_score_rows:
         job = client.load_table_from_json(hole_score_rows, _bq_table_id('hole_scores'))
         job.result()
-        if job.errors:
-            raise Exception(f"Failed to insert hole score rows: {job.errors}")
+        if job.errors: raise Exception(f"Hole scores load failed: {job.errors}")
 
-    _run_bigquery_sql(
-        f"""
-        UPDATE {_bq_table('events')}
-        SET is_imported = TRUE,
+    if mark_imported_ids:
+        _run_bigquery_sql(
+            f"UPDATE {_bq_table('events')} SET is_imported = TRUE, update_time = CURRENT_TIMESTAMP() WHERE event_id IN UNNEST(@ids)",
+            [bigquery.ArrayQueryParameter('ids', 'STRING', mark_imported_ids)]
+        )
+
+
+def bulk_update_event_file_metadata(metadata_updates):
+    """Update file metadata for multiple events in a single query.
+    
+    metadata_updates: list of dicts with keys {'event_id', 'file_name', 'file_path'}
+    """
+    if not metadata_updates:
+        return
+
+    sql = f"""
+        UPDATE {_bq_table('events')} t
+        SET file_name = s.file_name,
+            file_path = s.file_path,
             update_time = CURRENT_TIMESTAMP()
-        WHERE event_id = @event_id
-        """,
-        [bigquery.ScalarQueryParameter('event_id', 'STRING', event_id)],
-    )
+        FROM UNNEST(@updates) s
+        WHERE t.event_id = s.event_id
+    """
+    # In older versions of google-cloud-bigquery, ArrayQueryParameter does not accept 'sub_params'.
+    # Instead, the value for a RECORD array must be a list of StructQueryParameter objects.
+    struct_params = []
+    for update_data in metadata_updates:
+        struct_params.append(
+            bigquery.StructQueryParameter(
+                None,  # Name is not needed for elements in an array of records
+                bigquery.ScalarQueryParameter('event_id', 'STRING', update_data['event_id']),
+                bigquery.ScalarQueryParameter('file_name', 'STRING', update_data['file_name']),
+                bigquery.ScalarQueryParameter('file_path', 'STRING', update_data['file_path']),
+            )
+        )
+    params = [
+        bigquery.ArrayQueryParameter('updates', 'RECORD', struct_params)
+    ]
+    _run_bigquery_sql(sql, params)
 
-    return event_id
 
-
-def update_event_file_metadata(event_id, file_name, file_path):
-    """Update file metadata for an event after moving the imported file."""
-    _run_bigquery_sql(
+def fetch_event_by_url(export_url):
+    """Fetch event metadata by its export URL."""
+    rows = _run_bigquery_sql(
         f"""
-        UPDATE {_bq_table('events')}
-        SET file_name = @file_name,
-            file_path = @file_path,
-            update_time = CURRENT_TIMESTAMP()
-        WHERE event_id = @event_id
+        SELECT event_id, is_imported 
+        FROM {_bq_table('events')} 
+        WHERE export_url = @url 
+        LIMIT 1
         """,
-        [
-            bigquery.ScalarQueryParameter('file_name', 'STRING', file_name),
-            bigquery.ScalarQueryParameter('file_path', 'STRING', file_path),
-            bigquery.ScalarQueryParameter('event_id', 'STRING', str(event_id)),
-        ],
+        [bigquery.ScalarQueryParameter('url', 'STRING', export_url)],
     )
+    return rows[0] if rows else None
 
 
 def execute_sql_script(script_path):
