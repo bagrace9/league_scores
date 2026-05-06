@@ -4,8 +4,31 @@
 -- =============================================================================
 
 
-CREATE or replace TABLE handicaps AS
-WITH ranked_scores AS (
+CREATE OR REPLACE TABLE `{dataset_name}.handicaps` AS
+
+
+WITH scores_in_handicap_calc AS (
+    SELECT
+
+         rs.raw_score_id
+        , rs.league_id
+        , rs.raw_score
+        , rs.player_username
+        , e.event_end_date
+    FROM raw_scores rs
+    JOIN events e
+        ON e.event_id = rs.event_id
+    JOIN leagues l
+        ON l.league_id = rs.league_id
+    WHERE l.league_is_handicap = TRUE
+    and e.is_excluded_from_handicap = FALSE
+    and extract(year from e.event_end_date) >= extract(year from current_date()) - l.handicap_years_lookback
+
+),
+
+
+
+scores_to_handicap AS (
     SELECT
           l.league_id
         , l.handicap_minimum_rounds
@@ -17,65 +40,105 @@ WITH ranked_scores AS (
         , rs.raw_score
         , rs.player_username
         , e.event_end_date
-        , ROW_NUMBER() OVER (
-            PARTITION BY l.league_id, rs.player_username
-            ORDER BY e.event_end_date DESC
-        ) AS rn
+        ,(select count(*)
+            from scores_in_handicap_calc shc
+            where shc.player_username = rs.player_username
+            and shc.league_id = rs.league_id
+            and shc.event_end_date < e.event_end_date
+            ) previous_weeks
     FROM raw_scores rs
-    LEFT JOIN events e
+    JOIN events e
         ON e.event_id = rs.event_id
     JOIN leagues l
         ON l.league_id = rs.league_id
-    WHERE e.is_excluded_from_handicap = FALSE
-      AND l.league_is_handicap = TRUE
-),
-next_handicaps AS (
-    SELECT
-          rs1.league_id
-        , rs1.raw_score_id
-        , rs1.player_username
-        , rs1.event_end_date
-        , rs1.raw_score
-        , CASE
-            WHEN COUNT(*) < rs1.handicap_minimum_rounds THEN 0
-            ELSE ROUND((AVG(rs2.raw_score) - rs1.handicap_base_score) * rs1.handicap_multiplier, 0)
-          END AS next_handicap
-        , STRING_AGG(CAST(rs2.raw_score AS STRING), ',' ORDER BY rs2.rn) AS next_handicap_scores
-        , COUNT(*) AS lookback_count
-    FROM ranked_scores rs1
-    JOIN ranked_scores rs2
-        ON rs2.league_id = rs1.league_id
-       AND rs2.player_username = rs1.player_username
-       AND rs2.rn BETWEEN rs1.rn AND rs1.rn + rs1.handicap_rounds_considered - 1
-    WHERE EXTRACT(YEAR FROM rs1.event_end_date) >= EXTRACT(YEAR FROM CURRENT_DATE()) - 1
-    GROUP BY
-          rs1.league_id
-        , rs1.player_username
-        , rs1.raw_score_id
-        , rs1.handicap_base_score
-        , rs1.handicap_multiplier
-        , rs1.handicap_minimum_rounds
-        , rs1.event_end_date
-        , rs1.raw_score
+    WHERE l.league_is_handicap = TRUE
+    and e.is_no_handicap_applied = FALSE
+    and extract(year from e.event_end_date) >= extract(year from current_date()) - l.handicap_years_lookback
+
 )
-SELECT
-      league_id
-    , raw_score_id
-    , player_username
-    , CAST(GREATEST(next_handicap, 0) AS INT64) AS next_handicap
-    , next_handicap_scores
-    , event_end_date
-    , raw_score
-    , CAST(
-        LAG(GREATEST(next_handicap, 0)) OVER (
-        PARTITION BY league_id, player_username
-        ORDER BY event_end_date
-            ) 
-        AS INT64
-        ) AS handicap
-    , LAG(next_handicap_scores) OVER (
-        PARTITION BY league_id, player_username
-        ORDER BY event_end_date
-      ) AS handicap_scores
+
+
+
+, joined_scores as (
+    SELECT
+          
+         stc.raw_score_id
+        ,stc.handicap_base_score
+        ,stc.handicap_multiplier
+        ,stc.league_id
+        ,stc.player_username
+        ,stc.event_end_date
+        ,stc.raw_score
+        ,shc.raw_score as hcap_raw_score
+        ,stc.previous_weeks
+        ,stc.handicap_minimum_rounds
+        ,shc.event_end_date hcap_end_date
+    FROM scores_to_handicap stc
+    join scores_in_handicap_calc shc
+        on shc.player_username = stc.player_username
+       and shc.league_id = stc.league_id
+       and shc.event_end_date <= stc.event_end_date
+
+    qualify row_number() over (partition by stc.raw_score_id order by shc.event_end_date desc) <= stc.handicap_rounds_considered 
+)
+
+
+
+,next_handicap as ( 
+select 
+        js.league_id
+        , js.player_username
+        , js.event_end_date
+        , js.raw_score
+        , js.raw_score_id
+        , js.previous_weeks
+        , js.handicap_minimum_rounds
+        , case when js.handicap_minimum_rounds -1 > js.previous_weeks 
+               then 0
+               else greatest(
+                        cast( 
+                              round(
+                                      (avg(js.hcap_raw_score) - js.handicap_base_score) * js.handicap_multiplier
+                                  , 0)
+                              as int
+                              ) 
+                          ,0)
+               end AS next_handicap
+        , string_agg(cast(js.hcap_raw_score as string),',' order by js.event_end_date desc) as next_raw_scores_considered
+        
+from joined_scores js
+group by 
+          js.league_id
+        , js.player_username
+        , js.event_end_date
+        , js.raw_score
+        , js.raw_score_id
+        , js.handicap_base_score
+        , js.handicap_multiplier
+        , js.previous_weeks
+        , js.handicap_minimum_rounds
+)
+
+
+select nh.raw_score_id
+         ,nh.raw_score
+         ,nh.next_handicap
+         ,nh.next_raw_scores_considered
+         ,nh.league_id
+         ,nh.player_username
+         ,nh.event_end_date
+         
+    , last_value(nh.next_handicap ignore nulls) 
+           over (partition by nh.league_id, nh.player_username 
+                     order by nh.event_end_date
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ) as handicap
+
+    , last_value(nh.next_raw_scores_considered ignore nulls) 
+           over (partition by nh.league_id, nh.player_username 
+                     order by nh.event_end_date
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ) as raw_scores_considered
+    , row_number() over (partition by nh.league_id, nh.player_username order by nh.event_end_date desc) as handicap_rank
     , CURRENT_TIMESTAMP() AS create_time
-FROM next_handicaps;
+from next_handicap nh

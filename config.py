@@ -8,7 +8,6 @@ OPTIONAL_ENV_KEYS = (
     'GOOGLE_APPLICATION_CREDENTIALS',
     'GCS_BUCKET',
     'ARCHIVE_IMPORTED_FILES',
-    'EVENT_UPDATES_PATH',
     'LEAGUES_BOOTSTRAP_PATH',
 )
 
@@ -112,13 +111,10 @@ def get_storage_config(config_path=None):
     """Return optional archive storage configuration values."""
     config = load_db_config(config_path)
     bucket = config.get('GCS_BUCKET')
-    event_updates_path = (config.get('EVENT_UPDATES_PATH') or 'config/event_updates.csv').strip('/')
-    event_updates_gcs_uri = f"gs://{bucket}/{event_updates_path}" if bucket and event_updates_path else ''
 
     return {
         'bucket': bucket,
         'archive_files': _to_bool(config.get('ARCHIVE_IMPORTED_FILES'), default=True),
-        'event_updates_gcs_uri': event_updates_gcs_uri,
     }
 
 

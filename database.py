@@ -222,7 +222,16 @@ def _normalize_column_name(name):
 
 def _load_import_dataframe(file_path):
     """Load raw export as-is, then expose normalized columns for flexible mapping."""
-    df = pd.read_excel(file_path)
+    # Using 'calamine' engine is significantly faster for large Excel files
+    try:
+        df = pd.read_excel(file_path, engine='calamine')
+    except (ImportError, ValueError):
+        # Fallback to default if calamine is not installed
+        df = pd.read_excel(file_path)
+
+    if df.empty:
+        return df
+
     if df.empty:
         return df
 
@@ -265,11 +274,11 @@ def _extract_hole_number(column_name):
     return None
 
 
-def import_downloaded_file(league_id, downloaded_file):
-    """Import one downloaded leaderboard file into events, raw_scores, and hole_scores."""
+def prepare_import_data(league_id, downloaded_file, event_id=None):
+    """Parse a leaderboard file and return row dictionaries for bulk import."""
     df = _load_import_dataframe(downloaded_file.filepath)
     if df.empty:
-        raise ValueError(f"No rows found in file: {downloaded_file.filepath}")
+        return None
 
     available_columns = set(df.columns)
     required_columns = {"division", "name", "username", "round_total_score"}
@@ -279,8 +288,8 @@ def import_downloaded_file(league_id, downloaded_file):
             f"Missing required columns in file {downloaded_file.filepath}: {', '.join(missing_columns)}"
         )
 
-    client = _get_bigquery_client()
-    event_id = str(uuid.uuid4())
+    if event_id is None:
+        event_id = str(uuid.uuid4())
     event_name = _derive_event_name_from_filename(downloaded_file.filename)
     num_players = int(df['name'].notna().sum()) if 'name' in df.columns else len(df)
 
@@ -294,100 +303,132 @@ def import_downloaded_file(league_id, downloaded_file):
         'file_name': downloaded_file.filename,
         'file_path': downloaded_file.filepath,
         'num_players': num_players,
-        'download_date': downloaded_file.download_date.isoformat() if downloaded_file.download_date else None,
+        'download_date': downloaded_file.download_date.strftime('%Y-%m-%d %H:%M:%S') if downloaded_file.download_date else None,
         'is_imported': False,
         'is_excluded_from_handicap': False,
         'is_excluded_from_points': False,
+        'is_no_handicap_applied': False,
+        'buy_in_override_ammt': None,
         'points_multiplier': None,
     }
-
-    job = client.load_table_from_json([event_row], _bq_table_id('events'))
-    job.result()
-    if job.errors:
-        raise Exception(f"Failed to insert event row: {job.errors}")
 
     raw_score_rows = []
     hole_score_rows = []
 
-    for raw_row in df.to_dict(orient="records"):
-        row = _normalize_row(raw_row)
+    # Vectorized approach: identify hole columns and prepare score IDs
+    df['raw_score_id'] = [str(uuid.uuid4()) for _ in range(len(df))]
+    hole_cols = [c for c in df.columns if _extract_hole_number(c) is not None]
 
-        division = _to_text(row.get("division"))
-        player_name = _to_text(row.get("name"))
-        player_username = _to_text(row.get("username"))
-        raw_score = _to_int(row.get("round_total_score"))
+    # Prepare Raw Scores
+    for _, row in df.iterrows():
+        p_name = _to_text(row.get('name'))
+        if not p_name: continue
+        
+        raw_score_rows.append({
+            'raw_score_id': row['raw_score_id'],
+            'event_id': event_id,
+            'league_id': str(league_id),
+            'division': _to_text(row.get('division')),
+            'player_name': p_name,
+            'player_username': _to_text(row.get('username')),
+            'raw_score': _to_int(row.get('round_total_score')),
+        })
 
-        if player_name is None:
-            continue
-
-        raw_score_id = str(uuid.uuid4())
-        raw_score_rows.append(
-            {
-                'raw_score_id': raw_score_id,
-                'event_id': event_id,
-                'league_id': str(league_id),
-                'division': division,
-                'player_name': player_name,
-                'player_username': player_username,
-                'raw_score': raw_score,
-            }
-        )
-
-        for column_name, value in row.items():
-            hole_number = _extract_hole_number(column_name)
-            hole_score = _to_int(value)
-            if hole_number is None or hole_score is None:
-                continue
-            hole_score_rows.append(
-                {
+    # Use Melt to flatten hole scores (vectorized pivot)
+    if hole_cols:
+        melted = df.melt(id_vars=['raw_score_id'], value_vars=hole_cols, var_name='h_col', value_name='h_score')
+        melted = melted.dropna(subset=['h_score'])
+        for _, row in melted.iterrows():
+            h_num = _extract_hole_number(row['h_col'])
+            h_val = _to_int(row['h_score'])
+            if h_num and h_val:
+                hole_score_rows.append({
                     'hole_score_id': str(uuid.uuid4()),
-                    'raw_score_id': raw_score_id,
-                    'hole_number': hole_number,
-                    'hole_score': hole_score,
-                }
-            )
+                    'raw_score_id': row['raw_score_id'],
+                    'hole_number': h_num,
+                    'hole_score': h_val,
+                })
+
+    return {
+        'event_id': event_id,
+        'event_row': event_row,
+        'raw_score_rows': raw_score_rows,
+        'hole_score_rows': hole_score_rows
+    }
+
+
+def execute_bulk_import(event_rows, raw_score_rows, hole_score_rows, mark_imported_ids=None):
+    """Perform batch load jobs for all collected rows."""
+    client = _get_bigquery_client()
+
+    if event_rows:
+        job = client.load_table_from_json(event_rows, _bq_table_id('events'))
+        job.result()
+        if job.errors: raise Exception(f"Events load failed: {job.errors}")
 
     if raw_score_rows:
         job = client.load_table_from_json(raw_score_rows, _bq_table_id('raw_scores'))
         job.result()
-        if job.errors:
-            raise Exception(f"Failed to insert raw score rows: {job.errors}")
+        if job.errors: raise Exception(f"Raw scores load failed: {job.errors}")
 
     if hole_score_rows:
         job = client.load_table_from_json(hole_score_rows, _bq_table_id('hole_scores'))
         job.result()
-        if job.errors:
-            raise Exception(f"Failed to insert hole score rows: {job.errors}")
+        if job.errors: raise Exception(f"Hole scores load failed: {job.errors}")
 
-    _run_bigquery_sql(
-        f"""
-        UPDATE {_bq_table('events')}
-        SET is_imported = TRUE,
+    if mark_imported_ids:
+        _run_bigquery_sql(
+            f"UPDATE {_bq_table('events')} SET is_imported = TRUE, update_time = CURRENT_TIMESTAMP() WHERE event_id IN UNNEST(@ids)",
+            [bigquery.ArrayQueryParameter('ids', 'STRING', mark_imported_ids)]
+        )
+
+
+def bulk_update_event_file_metadata(metadata_updates):
+    """Update file metadata for multiple events in a single query.
+    
+    metadata_updates: list of dicts with keys {'event_id', 'file_name', 'file_path'}
+    """
+    if not metadata_updates:
+        return
+
+    sql = f"""
+        UPDATE {_bq_table('events')} t
+        SET file_name = s.file_name,
+            file_path = s.file_path,
             update_time = CURRENT_TIMESTAMP()
-        WHERE event_id = @event_id
-        """,
-        [bigquery.ScalarQueryParameter('event_id', 'STRING', event_id)],
-    )
+        FROM UNNEST(@updates) s
+        WHERE t.event_id = s.event_id
+    """
+    # In older versions of google-cloud-bigquery, ArrayQueryParameter does not accept 'sub_params'.
+    # Instead, the value for a RECORD array must be a list of StructQueryParameter objects.
+    struct_params = []
+    for update_data in metadata_updates:
+        struct_params.append(
+            bigquery.StructQueryParameter(
+                None,  # Name is not needed for elements in an array of records
+                bigquery.ScalarQueryParameter('event_id', 'STRING', update_data['event_id']),
+                bigquery.ScalarQueryParameter('file_name', 'STRING', update_data['file_name']),
+                bigquery.ScalarQueryParameter('file_path', 'STRING', update_data['file_path']),
+            )
+        )
+    params = [
+        bigquery.ArrayQueryParameter('updates', 'RECORD', struct_params)
+    ]
+    _run_bigquery_sql(sql, params)
 
-    return event_id
 
-
-def update_event_file_metadata(event_id, file_name, file_path):
-    """Update file metadata for an event after moving the imported file."""
-    _run_bigquery_sql(
+def fetch_event_by_url(export_url):
+    """Fetch event metadata by its export URL."""
+    rows = _run_bigquery_sql(
         f"""
-        UPDATE {_bq_table('events')}
-        SET file_name = @file_name,
-            file_path = @file_path,
-            update_time = CURRENT_TIMESTAMP()
-        WHERE event_id = @event_id
+        SELECT event_id, is_imported 
+        FROM {_bq_table('events')} 
+        WHERE export_url = @url 
+        LIMIT 1
         """,
-        [
-            bigquery.ScalarQueryParameter('file_name', 'STRING', file_name),
-            bigquery.ScalarQueryParameter('file_path', 'STRING', file_path),
-            bigquery.ScalarQueryParameter('event_id', 'STRING', str(event_id)),
-        ],
+        [bigquery.ScalarQueryParameter('url', 'STRING', export_url)],
     )
+    return rows[0] if rows else None
 
 
 def execute_sql_script(script_path):
@@ -509,64 +550,173 @@ def payouts_table_exists():
     return bool(rows and rows[0]['table_count'] > 0)
 
 
-def apply_event_updates(gcs_uri=None):
-    """Reset event update fields, then apply per-event overrides from a CSV in GCS.
-
-    CSV columns:
-        exporturl                 (required) — matches export_url in events table
-        is_excluded_from_handicap (optional bool) — true/false
-        is_excluded_from_points   (optional bool) — true/false
-        points_multiplier         (optional numeric)
-    """
-    if not gcs_uri:
-        logger.debug('No event updates GCS URI provided; no event updates will be applied.')
-        return
-
-    from google.cloud import storage as gcs
-    import io
-
-    try:
-        storage_client = gcs.Client()
-        bucket_name, blob_path = gcs_uri[len('gs://'):].split('/', 1)
-        blob = storage_client.bucket(bucket_name).blob(blob_path)
-        csv_bytes = blob.download_as_bytes()
-    except Exception as e:
-        logger.warning(f"Could not download event updates file from {gcs_uri}: {e}; skipping updates.")
-        return
-
-    df = pd.read_csv(io.BytesIO(csv_bytes), dtype=str)
-    if 'exporturl' not in df.columns:
-        raise ValueError(f"Missing required column 'exporturl' in event updates file {gcs_uri}")
-
-    df['exporturl'] = df['exporturl'].fillna('').str.strip()
-    df = df[df['exporturl'] != '']
-    
-    # Load updates to a temporary staging table
-    client = _get_bigquery_client()
-    staging_table_id = f"{_bq_dataset_ref()}.tmp_event_updates"
-    
-    job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_TRUNCATE",
+def apply_event_updates():
+    """Reset event update fields, then apply per-event overrides from the event_updates table."""
+    # Reset defaults
+    _run_bigquery_sql(
+        f"""
+        UPDATE {_bq_table('events')} 
+        SET is_excluded_from_handicap = FALSE, 
+            is_no_handicap_applied = FALSE, 
+            is_excluded_from_points = FALSE, 
+            points_multiplier = NULL, 
+            buy_in_override_ammt = NULL 
+        WHERE TRUE
+        """
     )
-    client.load_table_from_dataframe(df, staging_table_id, job_config=job_config).result()
 
-    # Single MERGE/UPDATE statement for all rows
+    # Single UPDATE statement from the event_updates table managed by the admin app
     sql = f"""
         UPDATE {_bq_table('events')} t
         SET 
-            is_excluded_from_handicap = COALESCE(CAST(s.is_excluded_from_handicap AS BOOL), t.is_excluded_from_handicap),
-            is_excluded_from_points = COALESCE(CAST(s.is_excluded_from_points AS BOOL), t.is_excluded_from_points),
-            points_multiplier = COALESCE(CAST(s.points_multiplier AS NUMERIC), t.points_multiplier),
+            is_excluded_from_handicap = COALESCE(s.is_excluded_from_handicap, t.is_excluded_from_handicap),
+            is_no_handicap_applied = COALESCE(s.is_no_handicap_applied, t.is_no_handicap_applied),
+            is_excluded_from_points = COALESCE(s.is_excluded_from_points, t.is_excluded_from_points),
+            points_multiplier = COALESCE(s.points_multiplier, t.points_multiplier),
+            buy_in_override_ammt = COALESCE(s.buy_in_override_ammt, t.buy_in_override_ammt),
             update_time = CURRENT_TIMESTAMP()
-        FROM `{staging_table_id}` s
-        WHERE t.export_url = s.exporturl
+        FROM {_bq_table('event_updates')} s
+        WHERE t.export_url = s.export_url
     """
-    
-    # Reset defaults then apply updates
-    _run_bigquery_sql(f"UPDATE {_bq_table('events')} SET is_excluded_from_handicap = FALSE, is_excluded_from_points = FALSE, points_multiplier = NULL WHERE TRUE")
     _run_bigquery_sql(sql)
-    
-    # Cleanup staging table
-    client.delete_table(staging_table_id, not_found_ok=True)
+    logger.info("Applied event updates from database overrides.")
 
-    logger.info(f"Applied batch event updates from {gcs_uri}.")
+
+def _bq_table_exists(table_name):
+    """Checks if a BigQuery table exists."""
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT 1
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name = @table_name
+    """
+    rows = _run_bigquery_sql(sql, [bigquery.ScalarQueryParameter('table_name', 'STRING', table_name)])
+    return bool(rows)
+
+
+def _get_bq_table_ddl(table_name):
+    """Fetches the DDL (CREATE TABLE statement) for a BigQuery table."""
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT ddl
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name = @table_name
+    """
+    rows = _run_bigquery_sql(sql, [bigquery.ScalarQueryParameter('table_name', 'STRING', table_name)])
+    return rows[0]['ddl'] if rows else None
+
+def normalize_table_definition(ddl):
+    """Extracts the schema block from DDL and simplifies it for comparison."""
+    if not ddl:
+        return None
+
+    start = ddl.find('(')
+    if start == -1: return None
+
+    # Find matching closing paren for the column block to ignore OPTIONS (...)
+    depth, end = 0, -1
+    for i in range(start, len(ddl)):
+        if ddl[i] == '(': depth += 1
+        elif ddl[i] == ')': depth -= 1
+        if depth == 0:
+            end = i
+            break
+
+    if end == -1: return None
+
+    # Extract content, lowercase, remove noise, and collapse whitespace
+    content = ddl[start+1:end].lower()
+    content = content.replace("default generate_uuid()", "")
+    return re.sub(r"\s+", " ", content).strip()
+
+def sync_permanent_table_schemas():
+    """
+    Compares the schema of permanent tables with their _template counterparts.
+    If a permanent table's schema differs from its _template, the permanent table is dropped
+    and recreated with the _template's schema.
+    """
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT table_name
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name LIKE '%_template'
+    """
+    template_table_rows = _run_bigquery_sql(sql)
+
+    if not template_table_rows:
+        logger.info("No _template tables found for schema synchronization.")
+        return
+
+    for row in template_table_rows:
+        template_table_name = row['table_name']
+        main_table_name = template_table_name.replace('_template', '')
+        logger.info(f"Checking schema for main table '{main_table_name}' against template '{template_table_name}'...")
+
+        template_ddl = _get_bq_table_ddl(template_table_name)
+        main_table_exists = _bq_table_exists(main_table_name)
+        
+        if main_table_exists:
+            compared_template_ddl = normalize_table_definition(template_ddl)
+            compared_main_ddl = normalize_table_definition(_get_bq_table_ddl(main_table_name))
+            
+            if compared_template_ddl != compared_main_ddl:
+                logger.warning(f"Schema mismatch detected for '{main_table_name}'. Template DDL: {compared_template_ddl}, Main DDL: {compared_main_ddl}. Dropping and recreating '{main_table_name}'.")
+                create_statement = template_ddl.replace(f"`{_bq_dataset_ref()}.{template_table_name}`", f"`{_bq_dataset_ref()}.{main_table_name}`")
+                _run_bigquery_sql(f"DROP TABLE IF EXISTS {_bq_table(main_table_name)}")
+                _run_bigquery_sql(create_statement)
+                
+            else:
+                logger.info(f"Schema for '{main_table_name}' matches template. No action needed.")
+                continue
+
+        else:
+            logger.info(f"Main table '{main_table_name}' does not exist. Creating from template.")
+            create_statement = template_ddl.replace(f"`{_bq_dataset_ref()}.{template_table_name}`", f"`{_bq_dataset_ref()}.{main_table_name}`")
+            _run_bigquery_sql(create_statement)
+
+
+
+def drop_template_tables():
+    """Drops all tables in the configured dataset that end with '_template'."""
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT table_name
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name LIKE '%_template'
+    """
+    rows = _run_bigquery_sql(sql)
+
+    if rows:
+        logger.info(f"Found {len(rows)} template tables to drop.")
+        for row in rows:
+            table_to_drop = row['table_name']
+            _run_bigquery_sql(f"DROP TABLE IF EXISTS {_bq_table(table_to_drop)}")
+            logger.info(f"Dropped table: {table_to_drop}")
+    else:
+        logger.info("No template tables found to drop.")
+        
+def prune_abandoned_scores():
+    """Delete raw and hole scores for events or raw scores that do not exist."""
+    raw_result = _run_bigquery_sql(f"""
+        DELETE FROM {_bq_table('raw_scores')} rs
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {_bq_table('events')} e
+            WHERE e.event_id = rs.event_id
+        )
+    """)
+    
+    hole_result = _run_bigquery_sql(f"""
+        DELETE FROM {_bq_table('hole_scores')} hs
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {_bq_table('raw_scores')} rs
+            WHERE rs.raw_score_id = hs.raw_score_id
+        )
+    """)
+
+    raw_deleted = raw_result[0]['num_deleted_rows'] if raw_result else 0
+    hole_deleted = hole_result[0]['num_deleted_rows'] if hole_result else 0
+
+    if raw_deleted or hole_deleted:
+        logger.warning(f"Pruned abandoned scores: {raw_deleted} raw_scores, {hole_deleted} hole_scores")
+    else:
+        logger.info("No abandoned scores found.")
