@@ -18,9 +18,11 @@ I built this for the leagues I play in so I could automate weekly standings, pay
 - Scrapes league event links from UDisc schedule pages
 - Discovers leaderboard export URLs and downloads spreadsheets
 - Prevents duplicate imports using persisted `export_url` history
+- Synchronizes working table schemas with `_template` definitions automatically
 - Imports event, player, and hole-level data into normalized tables
+- Automatically prunes orphaned scores if parent events are removed
 - Rebuilds handicaps using configurable league rules
-- Rebuilds final scores with place, points, and payout calculations
+- Rebuilds adjusted scores with place, points, and payout calculations
 - Creates reporting views for current-season analytics
 - Logs each run to both console and timestamped log files
 
@@ -45,7 +47,9 @@ I built this for the leagues I play in so I could automate weekly standings, pay
 
 ## Data Pipeline Flow
 
-1. Ensure core tables exist
+1. Ensure template tables exist
+2. Synchronize permanent table schemas with templates (Drop/Recreate if changed)
+3. Prune orphaned data from child tables
 2. Ensure payout lookup table exists
 3. Read configured leagues from DB
 4. If no leagues exist, optionally bootstrap from `config/league_configs.json`
@@ -54,7 +58,7 @@ I built this for the leagues I play in so I could automate weekly standings, pay
 7. Download new exports
 8. Import rows into `events`, `raw_scores`, and `hole_scores`
 9. Rebuild `handicaps`
-10. Rebuild `final_scores`
+10. Rebuild `adjusted_scores`
 11. Recreate reporting views
 
 ## Database Configuration
@@ -128,7 +132,7 @@ High-level run command:
 ## Operational Notes
 
 - Imports are idempotent by `export_url`
-- SQL scripts are executed in dependency order: handicaps -> final_scores -> views
+- SQL scripts are executed in dependency order: handicaps -> adjusted_scores -> summary views
 - Logs are written to `logs/league_scores_YYYYMMDD_HHMMSS.log`
 
 ## Example Use Cases
@@ -142,6 +146,7 @@ High-level run command:
 
 - Designed and implemented a repeatable ETL-style pipeline from web source to relational tables
 - Built idempotent ingestion logic to avoid duplicate event processing
+- Implemented an automated schema evolution strategy using DDL comparison of template tables
 - Implemented SQL-based analytics transformations (rank/place/points/payout) with window functions
 - Added environment-aware configuration handling suitable for local and production deployments
 - Structured code into domain-focused modules with operational logging and deployment readiness

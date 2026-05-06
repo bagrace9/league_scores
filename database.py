@@ -298,6 +298,8 @@ def import_downloaded_file(league_id, downloaded_file):
         'is_imported': False,
         'is_excluded_from_handicap': False,
         'is_excluded_from_points': False,
+        'is_no_handicap_applied': False,
+        'buy_in_override_ammt': None,
         'points_multiplier': None,
     }
 
@@ -509,64 +511,173 @@ def payouts_table_exists():
     return bool(rows and rows[0]['table_count'] > 0)
 
 
-def apply_event_updates(gcs_uri=None):
-    """Reset event update fields, then apply per-event overrides from a CSV in GCS.
-
-    CSV columns:
-        exporturl                 (required) — matches export_url in events table
-        is_excluded_from_handicap (optional bool) — true/false
-        is_excluded_from_points   (optional bool) — true/false
-        points_multiplier         (optional numeric)
-    """
-    if not gcs_uri:
-        logger.debug('No event updates GCS URI provided; no event updates will be applied.')
-        return
-
-    from google.cloud import storage as gcs
-    import io
-
-    try:
-        storage_client = gcs.Client()
-        bucket_name, blob_path = gcs_uri[len('gs://'):].split('/', 1)
-        blob = storage_client.bucket(bucket_name).blob(blob_path)
-        csv_bytes = blob.download_as_bytes()
-    except Exception as e:
-        logger.warning(f"Could not download event updates file from {gcs_uri}: {e}; skipping updates.")
-        return
-
-    df = pd.read_csv(io.BytesIO(csv_bytes), dtype=str)
-    if 'exporturl' not in df.columns:
-        raise ValueError(f"Missing required column 'exporturl' in event updates file {gcs_uri}")
-
-    df['exporturl'] = df['exporturl'].fillna('').str.strip()
-    df = df[df['exporturl'] != '']
-    
-    # Load updates to a temporary staging table
-    client = _get_bigquery_client()
-    staging_table_id = f"{_bq_dataset_ref()}.tmp_event_updates"
-    
-    job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_TRUNCATE",
+def apply_event_updates():
+    """Reset event update fields, then apply per-event overrides from the event_updates table."""
+    # Reset defaults
+    _run_bigquery_sql(
+        f"""
+        UPDATE {_bq_table('events')} 
+        SET is_excluded_from_handicap = FALSE, 
+            is_no_handicap_applied = FALSE, 
+            is_excluded_from_points = FALSE, 
+            points_multiplier = NULL, 
+            buy_in_override_ammt = NULL 
+        WHERE TRUE
+        """
     )
-    client.load_table_from_dataframe(df, staging_table_id, job_config=job_config).result()
 
-    # Single MERGE/UPDATE statement for all rows
+    # Single UPDATE statement from the event_updates table managed by the admin app
     sql = f"""
         UPDATE {_bq_table('events')} t
         SET 
-            is_excluded_from_handicap = COALESCE(CAST(s.is_excluded_from_handicap AS BOOL), t.is_excluded_from_handicap),
-            is_excluded_from_points = COALESCE(CAST(s.is_excluded_from_points AS BOOL), t.is_excluded_from_points),
-            points_multiplier = COALESCE(CAST(s.points_multiplier AS NUMERIC), t.points_multiplier),
+            is_excluded_from_handicap = COALESCE(s.is_excluded_from_handicap, t.is_excluded_from_handicap),
+            is_no_handicap_applied = COALESCE(s.is_no_handicap_applied, t.is_no_handicap_applied),
+            is_excluded_from_points = COALESCE(s.is_excluded_from_points, t.is_excluded_from_points),
+            points_multiplier = COALESCE(s.points_multiplier, t.points_multiplier),
+            buy_in_override_ammt = COALESCE(s.buy_in_override_ammt, t.buy_in_override_ammt),
             update_time = CURRENT_TIMESTAMP()
-        FROM `{staging_table_id}` s
-        WHERE t.export_url = s.exporturl
+        FROM {_bq_table('event_updates')} s
+        WHERE t.export_url = s.export_url
     """
-    
-    # Reset defaults then apply updates
-    _run_bigquery_sql(f"UPDATE {_bq_table('events')} SET is_excluded_from_handicap = FALSE, is_excluded_from_points = FALSE, points_multiplier = NULL WHERE TRUE")
     _run_bigquery_sql(sql)
-    
-    # Cleanup staging table
-    client.delete_table(staging_table_id, not_found_ok=True)
+    logger.info("Applied event updates from database overrides.")
 
-    logger.info(f"Applied batch event updates from {gcs_uri}.")
+
+def _bq_table_exists(table_name):
+    """Checks if a BigQuery table exists."""
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT 1
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name = @table_name
+    """
+    rows = _run_bigquery_sql(sql, [bigquery.ScalarQueryParameter('table_name', 'STRING', table_name)])
+    return bool(rows)
+
+
+def _get_bq_table_ddl(table_name):
+    """Fetches the DDL (CREATE TABLE statement) for a BigQuery table."""
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT ddl
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name = @table_name
+    """
+    rows = _run_bigquery_sql(sql, [bigquery.ScalarQueryParameter('table_name', 'STRING', table_name)])
+    return rows[0]['ddl'] if rows else None
+
+def normalize_table_definition(ddl):
+    """Extracts the schema block from DDL and simplifies it for comparison."""
+    if not ddl:
+        return None
+
+    start = ddl.find('(')
+    if start == -1: return None
+
+    # Find matching closing paren for the column block to ignore OPTIONS (...)
+    depth, end = 0, -1
+    for i in range(start, len(ddl)):
+        if ddl[i] == '(': depth += 1
+        elif ddl[i] == ')': depth -= 1
+        if depth == 0:
+            end = i
+            break
+
+    if end == -1: return None
+
+    # Extract content, lowercase, remove noise, and collapse whitespace
+    content = ddl[start+1:end].lower()
+    content = content.replace("default generate_uuid()", "")
+    return re.sub(r"\s+", " ", content).strip()
+
+def sync_permanent_table_schemas():
+    """
+    Compares the schema of permanent tables with their _template counterparts.
+    If a permanent table's schema differs from its _template, the permanent table is dropped
+    and recreated with the _template's schema.
+    """
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT table_name
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name LIKE '%_template'
+    """
+    template_table_rows = _run_bigquery_sql(sql)
+
+    if not template_table_rows:
+        logger.info("No _template tables found for schema synchronization.")
+        return
+
+    for row in template_table_rows:
+        template_table_name = row['table_name']
+        main_table_name = template_table_name.replace('_template', '')
+        logger.info(f"Checking schema for main table '{main_table_name}' against template '{template_table_name}'...")
+
+        template_ddl = _get_bq_table_ddl(template_table_name)
+        main_table_exists = _bq_table_exists(main_table_name)
+        
+        if main_table_exists:
+            compared_template_ddl = normalize_table_definition(template_ddl)
+            compared_main_ddl = normalize_table_definition(_get_bq_table_ddl(main_table_name))
+            
+            if compared_template_ddl != compared_main_ddl:
+                logger.warning(f"Schema mismatch detected for '{main_table_name}'. Template DDL: {compared_template_ddl}, Main DDL: {compared_main_ddl}. Dropping and recreating '{main_table_name}'.")
+                create_statement = template_ddl.replace(f"`{_bq_dataset_ref()}.{template_table_name}`", f"`{_bq_dataset_ref()}.{main_table_name}`")
+                _run_bigquery_sql(f"DROP TABLE IF EXISTS {_bq_table(main_table_name)}")
+                _run_bigquery_sql(create_statement)
+                
+            else:
+                logger.info(f"Schema for '{main_table_name}' matches template. No action needed.")
+                continue
+
+        else:
+            logger.info(f"Main table '{main_table_name}' does not exist. Creating from template.")
+            create_statement = template_ddl.replace(f"`{_bq_dataset_ref()}.{template_table_name}`", f"`{_bq_dataset_ref()}.{main_table_name}`")
+            _run_bigquery_sql(create_statement)
+
+
+
+def drop_template_tables():
+    """Drops all tables in the configured dataset that end with '_template'."""
+    dataset_ref = _bq_dataset_ref()
+    sql = f"""
+        SELECT table_name
+        FROM `{dataset_ref}.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name LIKE '%_template'
+    """
+    rows = _run_bigquery_sql(sql)
+
+    if rows:
+        logger.info(f"Found {len(rows)} template tables to drop.")
+        for row in rows:
+            table_to_drop = row['table_name']
+            _run_bigquery_sql(f"DROP TABLE IF EXISTS {_bq_table(table_to_drop)}")
+            logger.info(f"Dropped table: {table_to_drop}")
+    else:
+        logger.info("No template tables found to drop.")
+        
+def prune_abandoned_scores():
+    """Delete raw and hole scores for events or raw scores that do not exist."""
+    raw_result = _run_bigquery_sql(f"""
+        DELETE FROM {_bq_table('raw_scores')} rs
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {_bq_table('events')} e
+            WHERE e.event_id = rs.event_id
+        )
+    """)
+    
+    hole_result = _run_bigquery_sql(f"""
+        DELETE FROM {_bq_table('hole_scores')} hs
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {_bq_table('raw_scores')} rs
+            WHERE rs.raw_score_id = hs.raw_score_id
+        )
+    """)
+
+    raw_deleted = raw_result[0]['num_deleted_rows'] if raw_result else 0
+    hole_deleted = hole_result[0]['num_deleted_rows'] if hole_result else 0
+
+    if raw_deleted or hole_deleted:
+        logger.warning(f"Pruned abandoned scores: {raw_deleted} raw_scores, {hole_deleted} hole_scores")
+    else:
+        logger.info("No abandoned scores found.")
