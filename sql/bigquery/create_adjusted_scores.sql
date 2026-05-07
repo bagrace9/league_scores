@@ -46,7 +46,8 @@ payouts_with_ties AS (
 
 scores_with_payouts AS (
 SELECT
-      swr.event_id
+      swr.raw_score_id
+    , swr.event_id
     , swr.league_id
     , l.league_name
     , e.event_end_date
@@ -82,7 +83,8 @@ JOIN leagues l
 
 
 SELECT
-      swp.event_id
+      swp.raw_score_id
+    , swp.event_id
     , swp.league_id
     , swp.league_name
     , swp.event_end_date
