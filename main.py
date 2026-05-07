@@ -25,6 +25,7 @@ CREATE_TABLES_SQL_PATH = 'sql/bigquery/create_perm_tables.sql'
 PLAYERS_SQL_PATH = 'sql/bigquery/create_season_players_summary_table.sql'
 SEASON_LOG_SQL_PATH = 'sql/bigquery/create_season_log_table.sql'
 SEASON_EVENT_SUMMARY_SQL_PATH = 'sql/bigquery/create_season_event_summary_table.sql'
+SEASON_HOLE_SCORES_SUMMARY_SQL_PATH = 'sql/bigquery/create_season_hole_scores_summary_table.sql'
 
 download_files = True # Set to True to enable downloading and importing new files from UDisc; set to False to only run updates on already imported data (handicaps, final scores, views, etc)
 
@@ -180,6 +181,7 @@ def main():
         ('season event summary', SEASON_EVENT_SUMMARY_SQL_PATH),
         ('players', PLAYERS_SQL_PATH),
         ('season log', SEASON_LOG_SQL_PATH),
+        ('season hole scores summary', SEASON_HOLE_SCORES_SUMMARY_SQL_PATH),
     ]:
         try:
             logger.info(f"Running {label} script: {path}")
