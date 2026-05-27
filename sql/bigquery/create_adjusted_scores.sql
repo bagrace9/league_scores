@@ -5,7 +5,23 @@
 
 
 CREATE OR REPLACE TABLE `{dataset_name}.adjusted_scores` AS
-WITH scores_with_ranks AS (
+WITH raw_scores_dnf AS (
+    SELECT
+          raw_score_id
+        , event_id
+        , league_id
+        , division
+        , player_name
+        , player_username
+        , case when udisc_place = 'DNF' then 999 else raw_score end as raw_score
+        , case when udisc_place = 'DNF' then null else raw_score end as raw_score_for_avg
+        , case when udisc_place = 'DNF' then 1 else 0 end as is_dnf
+    FROM raw_scores
+)
+
+
+
+,scores_with_ranks AS (
     SELECT
           rs.raw_score_id
         , rs.event_id
@@ -27,7 +43,9 @@ WITH scores_with_ranks AS (
                         ) AS tie_count
 
         , COUNT(*) OVER (PARTITION BY rs.league_id, rs.division, rs.event_id) AS num_players
-    FROM raw_scores rs
+        , rs.is_dnf
+        , rs.raw_score_for_avg
+    FROM raw_scores_dnf rs
     LEFT JOIN handicaps h
         ON rs.raw_score_id = h.raw_score_id
 ),
@@ -69,6 +87,8 @@ SELECT
         THEN ROUND(swr.num_players * COALESCE(e.buy_in_override_ammt, l.league_entry_fee) * (1 - (l.league_cash_percentage / 100)) * pwt.split_percentage, 0)
         ELSE 0
       END AS payout
+    , swr.is_dnf
+    , swr.raw_score_for_avg
 
 FROM scores_with_ranks swr
 join events e
@@ -98,9 +118,10 @@ SELECT
     , swp.place
     , swp.points
     , swp.payout
-    ,sum(points) 
+    , sum(points) 
            over (partition by swp.league_id, swp.division, swp.player_username , swp.year order by swp.event_end_date) as season_points_as_of_event
-    
+    , swp.is_dnf
+    , swp.raw_score_for_avg
 
 FROM scores_with_payouts swp
 ;

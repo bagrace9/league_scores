@@ -15,6 +15,7 @@ join leagues l
     on l.league_id = e.league_id
 
 where extract(year from e.event_end_date) = extract(year from current_date())
+and adj.is_dnf = 0 -- exclude DNF scores from summary stats
     GROUP BY
         e.event_id
      , e.league_id
