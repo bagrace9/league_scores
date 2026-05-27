@@ -53,6 +53,7 @@ CREATE OR REPLACE TABLE `{dataset_name}.raw_scores_template` (
     player_name STRING,
     player_username STRING,
     raw_score INT64,
+    udisc_place STRING,
     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
 );
