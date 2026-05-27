@@ -332,6 +332,7 @@ def prepare_import_data(league_id, downloaded_file, event_id=None):
             'player_name': p_name,
             'player_username': _to_text(row.get('username')),
             'raw_score': _to_int(row.get('round_total_score')),
+            'udisc_place': _to_text(row.get('position')),
         })
 
     # Use Melt to flatten hole scores (vectorized pivot)

@@ -22,6 +22,7 @@ WITH scores_in_handicap_calc AS (
         ON l.league_id = rs.league_id
     WHERE l.league_is_handicap = TRUE
     and e.is_excluded_from_handicap = FALSE
+    and rs.udisc_place <> 'DNF'
     and extract(year from e.event_end_date) >= extract(year from current_date()) - l.handicap_years_lookback
 
 ),
@@ -53,6 +54,7 @@ scores_to_handicap AS (
         ON l.league_id = rs.league_id
     WHERE l.league_is_handicap = TRUE
     and e.is_no_handicap_applied = FALSE
+    and rs.udisc_place <> 'DNF'
     and extract(year from e.event_end_date) >= extract(year from current_date()) - l.handicap_years_lookback
 
 )
