@@ -6,7 +6,7 @@ WITH player_stats AS (
          , adj.league_name
          , adj.division
          , max(adj.event_end_date) as last_played_date
-         , round(avg(adj.raw_score), 2) as average_raw_score
+         , round(avg(adj.raw_score_for_avg), 2) as average_raw_score
          , count(*) as events_played
          , sum(adj.points) as season_points
          , sum(adj.payout) as season_winnings

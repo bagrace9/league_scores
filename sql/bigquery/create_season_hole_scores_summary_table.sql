@@ -17,3 +17,4 @@ create or replace table season_hole_scores_summary as
           on l.league_id = adj.league_id
       join hole_scores hs 
           on hs.raw_score_id = adj.raw_score_id
+where adj.is_dnf = 0 -- exclude DNF scores from summary stats          
