@@ -6,6 +6,7 @@ and leaderboard export file downloads.
 """
 import logging
 import os
+import re
 from datetime import date, datetime
 from urllib.parse import urljoin
 
@@ -26,6 +27,35 @@ def fetch_page_content(url):
     return BeautifulSoup(response.content, 'html.parser')
 
 
+def _extract_year(value):
+    """Extract a 4-digit year from a string, if present."""
+    if not value:
+        return None
+    match = re.search(r"(19|20)\d{2}", str(value))
+    return int(match.group(0)) if match else None
+
+
+def _get_year_context(anchor):
+    """Inspect nearby text for a candidate event link to find a year."""
+    if anchor is None:
+        return None
+
+    candidates = []
+    for node in [anchor, anchor.parent, anchor.find_parent()]:
+        if node is None:
+            continue
+        text = node.get_text(' ', strip=True)
+        if text:
+            candidates.append(text)
+
+    for text in candidates:
+        year = _extract_year(text)
+        if year is not None:
+            return year
+
+    return None
+
+
 def get_event_links(url):
     """Return all event leaderboard URLs from a league's schedule pages.
 
@@ -37,7 +67,6 @@ def get_event_links(url):
     seen = set()
     last_len = -1
     page = 1
-    # Include prior year so late-season carryover events are not missed.
     lookback_year = datetime.now().year - 1
     while len(links) > last_len:
         page_url = f"{url}/schedule?page={page}"
@@ -45,22 +74,22 @@ def get_event_links(url):
         soup = fetch_page_content(page_url)
         if not soup:
             break
+
         for a_tag in soup.find_all('a', href=True):
-            year_span = a_tag.find_next('span', class_='ml-2 font-normal text-sm text-subtle')
             link = a_tag['href']
-            # Skip links where no year label is present — cannot validate recency.
-            if year_span is None:
+            if not link.startswith('/events') or '/leaderboard' not in link:
                 continue
-            link_year = year_span.text.strip()
-            try:
-                year = int(link_year)
-            except ValueError:
+
+            year = _get_year_context(a_tag)
+            if year is None:
                 continue
-            if link.startswith('/events') and '/leaderboard' in link and year >= lookback_year:
+
+            if year >= lookback_year:
                 full_url = 'https://udisc.com' + link
                 if full_url not in seen:
                     seen.add(full_url)
                     links.append(full_url)
+
         page += 1
     return links
 

@@ -82,11 +82,17 @@ class TestGetEventLinks:
         assert any("events/abc/leaderboard" in l for l in links)
         assert any("events/def/leaderboard" in l for l in links)
 
-    def test_skips_links_without_year_span(self):
-        html = b'<html><body><a href="/events/abc/leaderboard">No year span here</a></body></html>'
+    def test_skips_links_without_year_context(self):
+        html = b'<html><body><a href="/events/abc/leaderboard">No year context here</a></body></html>'
         with patch("scrape_udisc.requests.get", side_effect=self._mock_get([html])):
             links = get_event_links("https://udisc.com/leagues/foo")
         assert links == []
+
+    def test_parses_year_from_surrounding_text(self):
+        html = b'<html><body><div>2026</div><a href="/events/abc/leaderboard">Event link</a></body></html>'
+        with patch("scrape_udisc.requests.get", side_effect=self._mock_get([html])):
+            links = get_event_links("https://udisc.com/leagues/foo")
+        assert any("events/abc/leaderboard" in link for link in links)
 
     def test_skips_links_older_than_lookback_year(self):
         old_year = 2010
